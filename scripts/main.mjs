@@ -72,15 +72,20 @@ let activateTab = null;
 
 function injectSidebarTab() {
   try {
+    // Checked against a live v14.365-compatible module (Traveller Toolkit)
+    // that adds real sidebar tabs the same way: these are the actual tab
+    // strip and content containers, not a guess from a specific tab's
+    // parentElement (which turned out to be a per-button wrapper, not the
+    // shared strip — causing the dedup check below to always miss and the
+    // retry loop to inject duplicate buttons/sections/listeners).
+    const tabContainer = document.querySelector("#sidebar-tabs menu");
+    const contentContainer = document.querySelector("#sidebar-content");
     const chatButton = document.querySelector('[data-tab="chat"][role="tab"]');
-    const chatSection = document.getElementById("chat");
-    if (!chatButton || !chatSection) return false;
+    if (!tabContainer || !contentContainer || !chatButton) return false;
 
-    const tabContainer = chatButton.parentElement;
-    const contentContainer = chatSection.parentElement;
-    if (!tabContainer || !contentContainer || tabContainer.querySelector(`[data-tab="${MODULE_ID}"]`)) {
-      return !!(tabContainer && tabContainer.querySelector(`[data-tab="${MODULE_ID}"]`));
-    }
+    // Global-ID check, independent of which container turns out to be
+    // correct, so a wrong guess can never cause repeated re-injection.
+    if (document.getElementById(MODULE_ID)) return true;
 
     const button = document.createElement("button");
     button.type = "button";
@@ -99,7 +104,7 @@ function injectSidebarTab() {
     section.id = MODULE_ID;
     section.className = "tab";
     section.dataset.tab = MODULE_ID;
-    section.dataset.group = chatSection.dataset.group || "primary";
+    section.dataset.group = chatButton.dataset.group || "primary";
     section.style.display = "none";
     section.style.height = "100%";
     section.style.overflowY = "auto";
