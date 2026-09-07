@@ -1,0 +1,28 @@
+{
+  "id": "traveller-trading",
+  "title": "Traveller Trading",
+  "description": "Group finances, starship finances, cargo, and passengers for Mongoose Traveller 2e campaigns. A sidebar icon opens a panel covering the group's shared finances and each managed starship (cargo, passengers, running costs, configuration).",
+  "version": "1.0.0",
+  "compatibility": {
+    "minimum": "12",
+    "verified": "14"
+  },
+  "authors": [
+    { "name": "Roy" }
+  ],
+  "relationships": {
+    "systems": [
+      { "id": "mgt2e", "type": "system", "compatibility": {} }
+    ]
+  },
+  "esmodules": [
+    "scripts/main.mjs"
+  ],
+  "styles": [
+    "styles/traveller-trading.css"
+  ],
+  "languages": [],
+  "url": "https://github.com/rtrm/traveller-trading",
+  "manifest": "https://raw.githubusercontent.com/rtrm/traveller-trading/main/module.json",
+  "download": "https://github.com/rtrm/traveller-trading/archive/refs/heads/main.zip"
+}
