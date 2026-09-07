@@ -28,7 +28,12 @@ function buildItemData(good, folderId) {
         : "Trade goods",
       cargo: {
         price: good.price ?? 0,
-        illegal: !!good.illegal
+        illegal: !!good.illegal,
+        // The system defaults this to a dice-roll formula ("2D6 * 10") for
+        // random market-availability generation. Fixed at 1 ton per item
+        // here — the Cargo tab's own Quantity field tracks how many tons
+        // are actually carried.
+        tons: "1"
       }
     };
   }

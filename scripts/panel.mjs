@@ -15,28 +15,19 @@ function fmtCr(n) {
 }
 const RANK = { low: 0, basic: 1, middle: 2, high: 3 };
 
-export class TravellerTradingPanel extends Application {
-  static get defaultOptions() {
-    return foundry.utils.mergeObject(super.defaultOptions, {
-      id: "traveller-trading-panel",
-      title: "Traveller Trading",
-      template: `modules/${MODULE_ID}/templates/panel.hbs`,
-      width: 900,
-      height: 700,
-      resizable: true,
-      classes: ["tt-window"]
-    });
-  }
-
-  constructor(options = {}) {
-    super(options);
+// A plain controller (not a Foundry Application) so it can be mounted
+// directly into a content section injected into the real sidebar tab strip,
+// showing/hiding the same way Chat/Actors/etc. do rather than opening as a
+// separate floating window. See main.mjs for how it's wired in.
+export class TradingController {
+  constructor(hostElement) {
+    this.host = hostElement;
     this.view = { type: "finance" };
     this.shipTab = "config";
     this.financeDoc = null;
     this.shipDocs = [];
+    this.mounted = false;
   }
-
-  getData() { return {}; }
 
   async _loadAll() {
     this.financeDoc = await getFinanceDoc();
@@ -44,9 +35,21 @@ export class TravellerTradingPanel extends Application {
     this.shipDocs = getShipDocs();
   }
 
-  activateListeners(html) {
-    super.activateListeners(html);
-    const root = html[0].querySelector("#tt-root");
+  async mount() {
+    if (this.mounted) return;
+    this.mounted = true;
+
+    this.host.innerHTML = `
+      <div id="tt-root">
+        <div class="tt-header">
+          <p class="tt-title">Traveller <span>Trading</span></p>
+        </div>
+        <div class="tt-nav-row" data-tt-nav-row></div>
+        <div class="tt-content" data-tt-content>
+          <p class="tt-empty">Loading…</p>
+        </div>
+      </div>`;
+    const root = this.host.querySelector("#tt-root");
     this.root = root;
 
     if (this._outsideClickHandler) document.removeEventListener("click", this._outsideClickHandler);
@@ -62,7 +65,12 @@ export class TravellerTradingPanel extends Application {
 
     this._bindDelegatedEvents(root);
 
-    this._loadAll().then(() => this._renderPanel());
+    await this._loadAll();
+    this._renderPanel();
+  }
+
+  unmount() {
+    if (this._outsideClickHandler) document.removeEventListener("click", this._outsideClickHandler);
   }
 
   // ---------------------------------------------------------------------
