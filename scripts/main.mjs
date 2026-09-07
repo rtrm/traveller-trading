@@ -64,25 +64,41 @@ Hooks.on("deleteJournalEntry", (doc) => {
 // places) — so clicking this icon opens the panel as its own window, the
 // same reliable approach already used by the Drinax Tracker and Name
 // Generator modules, rather than trying to swap sidebar content in place.
-Hooks.once("renderSidebar", (app, html) => {
+//
+// Rather than guess the tab strip's container markup (it changed again in
+// v14 — real tabs are plain <button class="ui-control plain icon fa-solid
+// fa-*"> elements, not the older <a class="item"> pattern), this finds the
+// real Chat tab button and inserts a sibling matching its exact structure,
+// so it's correct regardless of what the container itself looks like.
+function addSidebarIcon() {
   try {
-    const el = html instanceof jQuery ? html[0] : html;
-    const root = el.closest?.("#sidebar") || document.querySelector("#sidebar") || el;
-    const tabsMenu = root.querySelector("#sidebar-tabs menu") || root.querySelector("#sidebar-tabs");
-    if (!tabsMenu || tabsMenu.querySelector(".traveller-trading-tab")) return;
+    const chatTab = document.querySelector('[data-tab="chat"][role="tab"]');
+    const container = chatTab?.parentElement;
+    if (!container || container.querySelector(`[data-tab="${MODULE_ID}"]`)) return;
 
-    const item = document.createElement("a");
-    item.className = "item traveller-trading-tab";
+    const item = document.createElement("button");
+    item.type = "button";
+    item.className = "ui-control plain icon fa-solid fa-money-bill-trend-up";
+    item.dataset.action = "tab";
     item.dataset.tab = MODULE_ID;
+    item.dataset.group = chatTab.dataset.group || "primary";
     item.dataset.tooltip = "Traveller Trading";
+    item.setAttribute("role", "tab");
+    item.setAttribute("aria-pressed", "false");
     item.setAttribute("aria-label", "Traveller Trading");
-    item.innerHTML = '<i class="fa-solid fa-money-bill-trend-up"></i>';
+    item.setAttribute("aria-controls", MODULE_ID);
     item.addEventListener("click", (ev) => {
       ev.preventDefault();
+      ev.stopPropagation();
       game.modules.get(MODULE_ID)?.api?.open();
     });
-    tabsMenu.appendChild(item);
+    container.appendChild(item);
   } catch (err) {
     console.warn("Traveller Trading | Could not add sidebar icon, use the macro instead.", err);
   }
-});
+}
+Hooks.once("renderSidebar", addSidebarIcon);
+// renderSidebar can fire before the tab strip itself is fully populated in
+// some load orders; a short-lived retry covers that without needing to
+// depend on exactly when the Chat button appears.
+Hooks.once("ready", () => setTimeout(addSidebarIcon, 500));
