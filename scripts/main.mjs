@@ -113,23 +113,44 @@ function injectSidebarTab() {
     const controller = new TradingController(section);
     if (mod) mod.controller = controller;
 
-    const allTabButtons = () => Array.from(tabContainer.children).filter(el => el.dataset && el.dataset.tab);
     const allSections = () => Array.from(contentContainer.children).filter(el => el.dataset && el.dataset.tab);
 
+    // Only ever touch elements this module itself added or overrode, and
+    // always undo an override before Foundry's own click handler runs.
+    // An earlier version force-hid every OTHER native section with an
+    // inline style whenever this tab activated — but Foundry's own
+    // tab-switching shows/hides tabs via a CSS class, not by clearing
+    // inline styles, so that inline "display:none" permanently stuck on
+    // every native section and broke every other sidebar tab from then on.
+    let hiddenNativeSection = null;
+
     activateTab = () => {
-      allSections().forEach(s => { s.style.display = (s === section) ? "" : "none"; });
-      allTabButtons().forEach(b => b.setAttribute("aria-pressed", b === button ? "true" : "false"));
+      const currentlyVisible = allSections().find(s => s !== section && s.style.display !== "none");
+      if (currentlyVisible) {
+        hiddenNativeSection = currentlyVisible;
+        hiddenNativeSection.style.display = "none";
+      }
+      section.style.display = "";
+      button.setAttribute("aria-pressed", "true");
       controller.mount();
     };
-    const deactivateTab = () => { section.style.display = "none"; button.setAttribute("aria-pressed", "false"); };
+    const deactivateTab = () => {
+      section.style.display = "none";
+      button.setAttribute("aria-pressed", "false");
+      if (hiddenNativeSection) {
+        hiddenNativeSection.style.removeProperty("display");
+        hiddenNativeSection = null;
+      }
+    };
 
     button.addEventListener("click", (ev) => {
       ev.preventDefault();
       ev.stopPropagation();
       activateTab();
     });
-    // Capture phase so this still runs even if Foundry's own tab-switching
-    // handler stops the event from propagating further.
+    // Capture phase, and only to clean up our own override, so Foundry's
+    // own tab-switching handler for the clicked native tab still runs
+    // completely normally afterward.
     tabContainer.addEventListener("click", (ev) => {
       const clicked = ev.target.closest("[data-tab]");
       if (clicked && clicked !== button) deactivateTab();
