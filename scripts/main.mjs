@@ -40,7 +40,7 @@ Hooks.on("updateJournalEntry", (doc) => {
       const k = j.getFlag(MODULE_ID, "kind");
       return k === "ship" || k === "storage";
     }).sort((a, b) => a.name.localeCompare(b.name));
-    app._render();
+    app._renderPanel();
   }
 });
 Hooks.on("deleteJournalEntry", (doc) => {
@@ -52,7 +52,7 @@ Hooks.on("deleteJournalEntry", (doc) => {
       const k = j.getFlag(MODULE_ID, "kind");
       return k === "ship" || k === "storage";
     }).sort((a, b) => a.name.localeCompare(b.name));
-    app._render();
+    app._renderPanel();
   }
 });
 

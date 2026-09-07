@@ -62,7 +62,7 @@ export class TravellerTradingPanel extends Application {
 
     this._bindDelegatedEvents(root);
 
-    this._loadAll().then(() => this._render());
+    this._loadAll().then(() => this._renderPanel());
   }
 
   // ---------------------------------------------------------------------
@@ -80,12 +80,12 @@ export class TravellerTradingPanel extends Application {
         else if (nav === "add-storage") { await this._promptAddShip(true); return; }
         else this.view = { type: "ship", id: nav };
         this.shipTab = "config";
-        this._render();
+        this._renderPanel();
         return;
       }
 
       const shipTabBtn = e.target.closest("[data-tt-shiptab]");
-      if (shipTabBtn) { this.shipTab = shipTabBtn.dataset.ttShiptab; this._render(); return; }
+      if (shipTabBtn) { this.shipTab = shipTabBtn.dataset.ttShiptab; this._renderPanel(); return; }
 
       const selectToggle = e.target.closest("[data-tt-select-toggle]");
       if (selectToggle) {
@@ -132,7 +132,7 @@ export class TravellerTradingPanel extends Application {
     if (!row) return;
     row[el.dataset.ttCargoField] = Number(el.value) || 0;
     await saveShipData(doc, ship);
-    this._render();
+    this._renderPanel();
   }
 
   async _onPassengerFieldChange(el) {
@@ -143,7 +143,7 @@ export class TravellerTradingPanel extends Application {
     if (!row) return;
     row[el.dataset.ttPassField] = el.value;
     await saveShipData(doc, ship);
-    this._render();
+    this._renderPanel();
   }
 
   async _promptAddShip(isStorage) {
@@ -167,7 +167,7 @@ export class TravellerTradingPanel extends Application {
     this.shipDocs = getShipDocs();
     this.view = { type: "ship", id: doc.id };
     this.shipTab = "config";
-    this._render();
+    this._renderPanel();
   }
 
   // ---------------------------------------------------------------------
@@ -189,7 +189,7 @@ export class TravellerTradingPanel extends Application {
     const unitValue = item.system?.cargo?.price ?? 0;
     ship.cargo.push({ id: uid(), itemName: item.name, quantity: 1, unitValue, notes: "", sourceUuid: item.uuid });
     await saveShipData(doc, ship);
-    this._render();
+    this._renderPanel();
   }
 
   // ---------------------------------------------------------------------
@@ -207,14 +207,14 @@ export class TravellerTradingPanel extends Application {
       await saveShipData(doc, ship);
       // Config/cargo numeric edits don't need a full re-render to feel responsive,
       // but keep it simple and consistent with the rest of the module.
-      this._render();
+      this._renderPanel();
     }
   }
 
   // ---------------------------------------------------------------------
   // Rendering
   // ---------------------------------------------------------------------
-  _render() {
+  _renderPanel() {
     this._renderNav();
     const content = this.root.querySelector("[data-tt-content]");
     if (this.view.type === "finance") {
@@ -319,7 +319,7 @@ export class TravellerTradingPanel extends Application {
     if (!amount || !description) { ui.notifications.warn("Enter both an amount and a description."); return; }
     if (!canEdit(this.financeDoc)) { ui.notifications.warn("You don't have permission to edit Group Finance."); return; }
     await postTransaction(this.financeDoc, { amount, description, source: "manual" });
-    this._render();
+    this._renderPanel();
   }
 
   async _action_add_recurring() {
@@ -337,7 +337,7 @@ export class TravellerTradingPanel extends Application {
     data.recurring = data.recurring || [];
     data.recurring.push({ id: uid(), description, amount, type, periodDays, lastAppliedDay: null });
     await saveFinanceData(this.financeDoc, data);
-    this._render();
+    this._renderPanel();
   }
 
   async _action_remove_recurring(btn) {
@@ -345,7 +345,7 @@ export class TravellerTradingPanel extends Application {
     const data = getFinanceData(this.financeDoc);
     data.recurring = (data.recurring || []).filter(r => r.id !== btn.dataset.id);
     await saveFinanceData(this.financeDoc, data);
-    this._render();
+    this._renderPanel();
   }
 
   // =======================================================================
@@ -407,7 +407,7 @@ export class TravellerTradingPanel extends Application {
     await deleteShipDoc(btn.dataset.id);
     this.shipDocs = getShipDocs();
     this.view = { type: "finance" };
-    this._render();
+    this._renderPanel();
   }
 
   // ---- Cargo --------------------------------------------------------------
@@ -452,7 +452,7 @@ export class TravellerTradingPanel extends Application {
     const ship = getShipData(doc);
     ship.cargo = (ship.cargo || []).filter(c => c.id !== btn.dataset.id);
     await saveShipData(doc, ship);
-    this._render();
+    this._renderPanel();
   }
 
   // ---- Passengers -----------------------------------------------------
@@ -550,7 +550,7 @@ export class TravellerTradingPanel extends Application {
       source: `ship:${doc.id}`
     });
 
-    this._render();
+    this._renderPanel();
   }
 
   async _action_refund_passenger(btn) {
@@ -565,7 +565,7 @@ export class TravellerTradingPanel extends Application {
     await saveShipData(doc, ship);
     const financeDoc = await getFinanceDoc();
     await postTransaction(financeDoc, { amount: -p.income, description: `${ship.name}: Refund - ${p.name}`, source: `ship:${doc.id}` });
-    this._render();
+    this._renderPanel();
   }
 
   async _action_upgrade_passenger(btn) {
@@ -577,7 +577,7 @@ export class TravellerTradingPanel extends Application {
     p.category = btn.dataset.to;
     p.description = passengerCategoryInfo(p.category).label;
     await saveShipData(doc, ship);
-    this._render();
+    this._renderPanel();
   }
 
   // ---- Costs ------------------------------------------------------------
@@ -639,7 +639,7 @@ export class TravellerTradingPanel extends Application {
     ship.costs.recurring = ship.costs.recurring || [];
     ship.costs.recurring.push({ id: uid(), description, amount, period, lastAppliedDay: null });
     await saveShipData(doc, ship);
-    this._render();
+    this._renderPanel();
   }
 
   async _action_remove_ship_cost(btn) {
@@ -648,7 +648,7 @@ export class TravellerTradingPanel extends Application {
     const ship = getShipData(doc);
     ship.costs.recurring = (ship.costs.recurring || []).filter(c => c.id !== btn.dataset.id);
     await saveShipData(doc, ship);
-    this._render();
+    this._renderPanel();
   }
 
   async _action_pay_starport() {
@@ -662,7 +662,7 @@ export class TravellerTradingPanel extends Application {
       await postTransaction(financeDoc, { amount: -Math.abs(c.amount), description: `${ship.name}: ${c.description} (Starport)`, source: `ship:${doc.id}` });
     }
     ui.notifications.info(`Paid ${starportCosts.length} starport cost(s) for ${ship.name}.`);
-    this._render();
+    this._renderPanel();
   }
 
   async _action_add_oneoff_cost() {
@@ -676,6 +676,6 @@ export class TravellerTradingPanel extends Application {
     const ship = getShipData(doc);
     const financeDoc = await getFinanceDoc();
     await postTransaction(financeDoc, { amount: -amount, description: `${ship.name}: ${description}`, source: `ship:${doc.id}` });
-    this._render();
+    this._renderPanel();
   }
 }
