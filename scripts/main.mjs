@@ -151,6 +151,13 @@ function injectSidebarTab() {
     button.addEventListener("click", (ev) => {
       ev.preventDefault();
       ev.stopPropagation();
+      // A collapsed sidebar was the actual explanation for every "clicking
+      // it does nothing" report: our tab was activating correctly the
+      // whole time, just invisibly, behind Foundry's own collapsed shell.
+      // Clicking a native tab happened to expand it as a side effect;
+      // ui.sidebar.expand() is Foundry's own real, public method for that
+      // (confirmed via live introspection, not guessed), so do it here too.
+      ui.sidebar?.expand?.();
       activateTab();
     });
     // Capture phase, and only to clean up our own override, so Foundry's
