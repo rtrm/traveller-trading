@@ -1,13 +1,16 @@
 import { MODULE_ID } from "./constants.mjs";
-import { getShipDocs, createShipDoc } from "./data.mjs";
+import { getShipDocs, createShipDoc, deleteShipDoc } from "./data.mjs";
 import { esc } from "./window-base.mjs";
 import { openGroupFinanceApp } from "./finance-app.mjs";
-import { openShipApp } from "./ship-app.mjs";
+import { openShipApp, closeShipAppIfOpen } from "./ship-app.mjs";
 
 // Mounted into the real sidebar tab strip (see main.mjs) as a simple
 // launcher/directory list, matching how every other sidebar tab behaves:
 // entries here just open the relevant document in its own window, rather
-// than embedding Group Finance / ship details in the sidebar itself.
+// than embedding Group Finance / ship details in the sidebar itself. Uses
+// Foundry's own directory/list class names (directory-list, directory-item,
+// document-name) so it picks up the same look as Actors/Items/Journal
+// directories from Foundry's own CSS, instead of a from-scratch style.
 export class LauncherController {
   constructor(hostElement) {
     this.host = hostElement;
@@ -19,14 +22,35 @@ export class LauncherController {
     if (this.mounted) return;
     this.mounted = true;
     this.host.innerHTML = `
-      <div id="tt-root">
-        <div class="tt-header">
-          <p class="tt-title">Traveller <span>Trading</span></p>
-        </div>
-        <ol class="tt-launcher-list" data-tt-launcher-list></ol>
+      <div id="tt-root" class="directory flexcol">
+        <header class="directory-header">
+          <h3 class="tt-launcher-title">Traveller Trading</h3>
+        </header>
+        <ol class="directory-list" data-tt-launcher-list></ol>
       </div>`;
     this.root = this.host.querySelector("#tt-root");
     this.root.addEventListener("click", (e) => this._onClick(e));
+
+    new ContextMenu(this.root, ".directory-item[data-tt-open]", [
+      {
+        name: "Delete",
+        icon: '<i class="fa-solid fa-trash"></i>',
+        condition: (li) => {
+          const el = li instanceof jQuery ? li[0] : li;
+          return game.user.isGM && el.dataset.ttOpen !== "finance";
+        },
+        callback: async (li) => {
+          const el = li instanceof jQuery ? li[0] : li;
+          const id = el.dataset.ttOpen;
+          const ok = await Dialog.confirm({ title: "Delete", content: "<p>Delete this entry? This cannot be undone.</p>" });
+          if (!ok) return;
+          await deleteShipDoc(id);
+          closeShipAppIfOpen(id);
+          this.refresh();
+        }
+      }
+    ]);
+
     this.refresh();
   }
 
@@ -75,28 +99,28 @@ export class LauncherController {
     const list = this.root?.querySelector("[data-tt-launcher-list]");
     if (!list) return;
     let html = `
-      <li class="tt-launcher-item" data-tt-open="finance">
+      <li class="directory-item tt-launcher-item" data-tt-open="finance">
         <span class="tt-launcher-icon">💰</span>
-        <span class="tt-launcher-name">Group Finance</span>
+        <div class="document-name">Group Finance</div>
       </li>`;
     for (const doc of this.shipDocs) {
       const kind = doc.getFlag(MODULE_ID, "kind");
       const icon = kind === "storage" ? "📦" : "🚀";
       html += `
-      <li class="tt-launcher-item" data-tt-open="${doc.id}">
+      <li class="directory-item tt-launcher-item" data-tt-open="${doc.id}">
         <span class="tt-launcher-icon">${icon}</span>
-        <span class="tt-launcher-name">${esc(doc.name.replace(/^Starship: |^Storage: /, ""))}</span>
+        <div class="document-name">${esc(doc.name.replace(/^Starship: |^Storage: /, ""))}</div>
       </li>`;
     }
     if (game.user.isGM) {
       html += `
-      <li class="tt-launcher-item tt-launcher-add" data-tt-add="ship">
+      <li class="directory-item tt-launcher-item tt-launcher-add" data-tt-add="ship">
         <span class="tt-launcher-icon">➕🚀</span>
-        <span class="tt-launcher-name">Add Starship</span>
+        <div class="document-name">Add Starship</div>
       </li>
-      <li class="tt-launcher-item tt-launcher-add" data-tt-add="storage">
+      <li class="directory-item tt-launcher-item tt-launcher-add" data-tt-add="storage">
         <span class="tt-launcher-icon">➕📦</span>
-        <span class="tt-launcher-name">Add Storage Location</span>
+        <div class="document-name">Add Storage Location</div>
       </li>`;
     }
     list.innerHTML = html;

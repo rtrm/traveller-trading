@@ -42,18 +42,22 @@
    default .window-content padding would double it up. */
 .traveller-trading-window .window-content { padding: 0; }
 
-#tt-root .tt-header { border-bottom: 1px solid var(--border); padding-bottom: 10px; }
-#tt-root .tt-title {
+/* Launcher (the sidebar tab itself) — uses Foundry's own "directory-header"
+   / "directory-list" / "directory-item" / "document-name" class names so it
+   picks up the same base look Foundry gives Actors/Items/Journal, with
+   these rules on top for anything that CSS doesn't already cover (icons,
+   the header title, the "add" entries) rather than a full from-scratch
+   style that would compete with Foundry's own. */
+#tt-root .directory-header { border-bottom: 1px solid var(--border); padding-bottom: 10px; margin-bottom: 8px; }
+#tt-root .tt-launcher-title {
   font-family: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
-  font-size: 20px;
+  font-size: 18px;
   font-weight: 700;
   margin: 0;
+  color: var(--text);
 }
-#tt-root .tt-title span { color: var(--gold); }
 
-/* Launcher list (the sidebar tab itself) — styled like a directory listing:
-   a plain vertical list of clickable entries, each opening its own window. */
-#tt-root .tt-launcher-list { list-style: none; margin: 12px 0 0; padding: 0; display: flex; flex-direction: column; gap: 2px; }
+#tt-root .directory-list { list-style: none; margin: 0; padding: 0; }
 #tt-root .tt-launcher-item {
   display: flex;
   align-items: center;
@@ -62,10 +66,11 @@
   border-radius: 4px;
   cursor: pointer;
   font-size: 13px;
+  color: var(--text);
 }
 #tt-root .tt-launcher-item:hover { background: var(--panel); }
 #tt-root .tt-launcher-icon { font-size: 15px; width: 20px; text-align: center; flex: none; }
-#tt-root .tt-launcher-name { flex: 1; }
+#tt-root .tt-launcher-item .document-name { flex: 1; }
 #tt-root .tt-launcher-add { color: var(--text-muted); border-top: 1px solid var(--border); margin-top: 6px; padding-top: 10px; }
 #tt-root .tt-launcher-add + .tt-launcher-add { border-top: none; margin-top: 0; padding-top: 8px; }
 
