@@ -105,7 +105,6 @@ function injectSidebarTab() {
     section.className = "tab";
     section.dataset.tab = MODULE_ID;
     section.dataset.group = chatButton.dataset.group || "primary";
-    section.style.display = "none";
     section.style.height = "100%";
     section.style.overflowY = "auto";
 
@@ -130,12 +129,18 @@ function injectSidebarTab() {
         hiddenNativeSection = currentlyVisible;
         hiddenNativeSection.style.display = "none";
       }
-      section.style.display = "";
+      // Foundry's own CSS hides `.tab` sections unless a class it controls
+      // (only ever applied to tabs it recognizes) says otherwise, so
+      // clearing our inline style here just lets that default-hidden rule
+      // win. Our own "tt-active" class (styles/traveller-trading.css) is
+      // scoped to our own element id and marked !important, so it reliably
+      // overrides whatever Foundry's base stylesheet does for ".tab".
+      section.classList.add("tt-active");
       button.setAttribute("aria-pressed", "true");
       controller.mount();
     };
     const deactivateTab = () => {
-      section.style.display = "none";
+      section.classList.remove("tt-active");
       button.setAttribute("aria-pressed", "false");
       if (hiddenNativeSection) {
         hiddenNativeSection.style.removeProperty("display");

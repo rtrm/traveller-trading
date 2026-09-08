@@ -1,3 +1,11 @@
+/* Foundry's own core CSS hides ".tab" sections by default and only shows
+   the one its own tab-switching logic recognizes as active — it never
+   recognizes this module's injected tab, so this class (applied/removed by
+   scripts/main.mjs) has to be specific and important enough to win over
+   whatever Foundry's base rule for ".tab" does. */
+#traveller-trading.tab { display: none; }
+#traveller-trading.tab.tt-active { display: block !important; }
+
 #tt-root {
   color-scheme: dark;
   --bg: #0b0f17;
