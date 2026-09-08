@@ -38,6 +38,10 @@
 }
 #tt-root * { box-sizing: border-box; }
 
+/* Group Finance / ship windows reuse #tt-root's own padding, so Foundry's
+   default .window-content padding would double it up. */
+.traveller-trading-window .window-content { padding: 0; }
+
 #tt-root .tt-header { border-bottom: 1px solid var(--border); padding-bottom: 10px; }
 #tt-root .tt-title {
   font-family: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
@@ -47,25 +51,23 @@
 }
 #tt-root .tt-title span { color: var(--gold); }
 
-#tt-root .tt-nav-row {
+/* Launcher list (the sidebar tab itself) — styled like a directory listing:
+   a plain vertical list of clickable entries, each opening its own window. */
+#tt-root .tt-launcher-list { list-style: none; margin: 12px 0 0; padding: 0; display: flex; flex-direction: column; gap: 2px; }
+#tt-root .tt-launcher-item {
   display: flex;
-  gap: 6px;
-  flex-wrap: wrap;
-  margin: 12px 0;
-}
-#tt-root .tt-nav-btn {
-  font-family: inherit;
-  background: var(--panel);
-  border: 1px solid var(--border);
-  color: var(--text-muted);
-  padding: 7px 12px;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 10px;
   border-radius: 4px;
-  font-size: 12.5px;
   cursor: pointer;
+  font-size: 13px;
 }
-#tt-root .tt-nav-btn:hover { color: var(--text); border-color: var(--text-muted); }
-#tt-root .tt-nav-btn.active { color: #14100a; background: var(--gold); border-color: var(--gold); font-weight: 600; }
-#tt-root .tt-nav-add { margin-left: auto; }
+#tt-root .tt-launcher-item:hover { background: var(--panel); }
+#tt-root .tt-launcher-icon { font-size: 15px; width: 20px; text-align: center; flex: none; }
+#tt-root .tt-launcher-name { flex: 1; }
+#tt-root .tt-launcher-add { color: var(--text-muted); border-top: 1px solid var(--border); margin-top: 6px; padding-top: 10px; }
+#tt-root .tt-launcher-add + .tt-launcher-add { border-top: none; margin-top: 0; padding-top: 8px; }
 
 #tt-root .tt-empty { color: var(--text-muted); font-size: 12.5px; text-align: center; margin: 20px 0; }
 

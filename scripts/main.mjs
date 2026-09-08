@@ -1,8 +1,11 @@
 import { MODULE_ID } from "./constants.mjs";
 import { registerTradeGoodsSettings } from "./trade-goods.mjs";
 import { registerPermissionsSettings } from "./permissions.mjs";
-import { TradingController } from "./panel.mjs";
-import { getFinanceDoc, processRecurring, getShipDocs } from "./data.mjs";
+import { registerTransactionLog } from "./logging.mjs";
+import { LauncherController } from "./panel.mjs";
+import { getFinanceDoc, processRecurring } from "./data.mjs";
+import { refreshGroupFinanceApp } from "./finance-app.mjs";
+import { refreshShipApp, closeShipAppIfOpen } from "./ship-app.mjs";
 
 Hooks.once("init", () => {
   registerTradeGoodsSettings();
@@ -19,6 +22,8 @@ Hooks.once("ready", () => {
     };
   }
 
+  registerTransactionLog();
+
   // Catch up on any recurring income/costs accumulated since the world was
   // last open, same approach as the Drinax Tracker's Standing drift.
   if (game.user.isGM) {
@@ -27,34 +32,32 @@ Hooks.once("ready", () => {
 });
 
 // Re-check recurring income/costs whenever the GM advances the mgt2e
-// campaign date, so it stays current even if nobody has the panel open.
+// campaign date, so it stays current even if nobody has a window open.
 Hooks.on("updateSetting", (setting) => {
   if (setting.key === "mgt2e.currentYear" || setting.key === "mgt2e.currentDay") {
     if (game.user.isGM) getFinanceDoc().then(doc => { if (doc) processRecurring(doc); });
   }
 });
 
-function refreshController() {
-  const mod = game.modules.get(MODULE_ID);
-  const controller = mod?.controller;
-  if (!controller?.mounted) return;
-  controller.shipDocs = getShipDocs();
-  controller._renderPanel();
+function refreshLauncher() {
+  const controller = game.modules.get(MODULE_ID)?.controller;
+  if (controller?.mounted) controller.refresh();
 }
 
-// Live-sync: refresh the panel whenever the Finance or any ship/storage
-// JournalEntry changes, from any client (a co-GM, a purser, a merchant...).
+// Live-sync: refresh the launcher list, plus any open Group Finance/ship
+// window, whenever the underlying JournalEntry changes from any client (a
+// co-GM, a purser, a merchant...).
 Hooks.on("updateJournalEntry", (doc) => {
-  if (!doc.getFlag(MODULE_ID, "kind")) return;
-  refreshController();
+  const kind = doc.getFlag(MODULE_ID, "kind");
+  if (!kind) return;
+  refreshLauncher();
+  if (kind === "finance") refreshGroupFinanceApp();
+  else refreshShipApp(doc.id);
 });
 Hooks.on("deleteJournalEntry", (doc) => {
   if (!doc.getFlag(MODULE_ID, "kind")) return;
-  const controller = game.modules.get(MODULE_ID)?.controller;
-  if (controller?.mounted && controller.view.type === "ship" && controller.view.id === doc.id) {
-    controller.view = { type: "finance" };
-  }
-  refreshController();
+  refreshLauncher();
+  closeShipAppIfOpen(doc.id);
 });
 
 // ---------------------------------------------------------------------------
@@ -66,7 +69,9 @@ Hooks.on("deleteJournalEntry", (doc) => {
 // button, confirmed via live inspection) plus a real content section as a
 // sibling of Chat's, and manages showing/hiding it itself rather than
 // depending on however Foundry's own tab-switching happens to work
-// internally for tabs it doesn't know about.
+// internally for tabs it doesn't know about. The tab itself is just a
+// launcher/directory list; Group Finance and each ship/storage open as
+// their own separate windows (see finance-app.mjs / ship-app.mjs).
 // ---------------------------------------------------------------------------
 let activateTab = null;
 
@@ -109,7 +114,7 @@ function injectSidebarTab() {
     section.style.overflowY = "auto";
 
     const mod = game.modules.get(MODULE_ID);
-    const controller = new TradingController(section);
+    const controller = new LauncherController(section);
     if (mod) mod.controller = controller;
 
     // Never try to detect or touch whichever native section currently
@@ -169,7 +174,13 @@ function injectSidebarTab() {
     }, true);
 
     contentContainer.appendChild(section);
-    tabContainer.appendChild(button);
+    // Insert before the sidebar's own collapse/expand toggle control (which
+    // sits at the end of the same tab strip) rather than after it, so this
+    // tab appears grouped with the other tab icons instead of trailing the
+    // whole strip.
+    const collapseToggle = tabContainer.querySelector('[data-action="toggleExpanded"]');
+    if (collapseToggle) tabContainer.insertBefore(button, collapseToggle);
+    else tabContainer.appendChild(button);
     return true;
   } catch (err) {
     console.warn("Traveller Trading | Could not add sidebar tab, use the macro instead.", err);
