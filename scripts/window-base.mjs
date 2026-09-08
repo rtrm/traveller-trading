@@ -57,10 +57,12 @@ export class TradingWindowBase extends Application {
 
   activateListeners(html) {
     super.activateListeners(html);
-    // Application passes the whole outer window element here (header +
-    // window-content), not just what _renderInner returned — our content
-    // has to be found as a descendant, not assumed to be html[0] itself.
-    this.root = html[0].querySelector("#tt-root");
+    // html[0] is actually the "#tt-root" div _renderInner returned (not an
+    // ancestor containing it) — querySelector("#tt-root") on it searches
+    // only descendants, never matching the element itself, and silently
+    // returns null. Handle both shapes defensively so this can't recur if
+    // that assumption ever turns out backwards again in some other case.
+    this.root = html[0].id === "tt-root" ? html[0] : html[0].querySelector("#tt-root");
     bindSelectAndActionDelegation(this.root, this);
 
     this._outsideClickHandler = (e) => {
