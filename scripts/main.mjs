@@ -121,15 +121,32 @@ function injectSidebarTab() {
     // a CSS rule (styles/traveller-trading.css) hides every OTHER ".tab"
     // sibling purely from the presence of our own "tt-active" class, with
     // no dependency on Foundry's internal class names at all.
+    let weConsiderOurselvesActive = false;
     activateTab = () => {
+      weConsiderOurselvesActive = true;
       section.classList.add("tt-active");
       button.setAttribute("aria-pressed", "true");
       controller.mount();
     };
     const deactivateTab = () => {
+      weConsiderOurselvesActive = false;
       section.classList.remove("tt-active");
       button.setAttribute("aria-pressed", "false");
     };
+
+    // Foundry's sidebar keeps rendering asynchronously for a while after it
+    // first appears (each native tab's own content, e.g. chat messages,
+    // renders in via a later _onFirstRender/#renderTabs step) — and clicking
+    // our tab during that window was observed to add "tt-active" only for
+    // it to disappear again moments later, with nothing in this module ever
+    // removing it. Rather than guess exactly when that settling finishes,
+    // self-heal: if anything strips our own active class while we still
+    // consider ourselves the active tab, put it straight back.
+    new MutationObserver(() => {
+      if (weConsiderOurselvesActive && !section.classList.contains("tt-active")) {
+        section.classList.add("tt-active");
+      }
+    }).observe(section, { attributes: true, attributeFilter: ["class"] });
 
     button.addEventListener("click", (ev) => {
       ev.preventDefault();
