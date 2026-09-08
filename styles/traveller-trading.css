@@ -6,6 +6,16 @@
 #traveller-trading.tab { display: none; }
 #traveller-trading.tab.tt-active { display: block !important; }
 
+/* When our tab is active, force-hide every other ".tab" sibling in the
+   shared content container. This has to be pure CSS: JS can't reliably
+   tell which native tab Foundry currently considers "active" (that's
+   tracked via a class we don't know the name of, not inline style), so a
+   JS-side hide/restore step was silently missing the real one and leaving
+   it stacked above ours in the flex layout. */
+#sidebar-content:has(#traveller-trading.tt-active) > .tab:not(#traveller-trading) {
+  display: none !important;
+}
+
 #tt-root {
   color-scheme: dark;
   --bg: #0b0f17;

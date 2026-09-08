@@ -112,29 +112,16 @@ function injectSidebarTab() {
     const controller = new TradingController(section);
     if (mod) mod.controller = controller;
 
-    const allSections = () => Array.from(contentContainer.children).filter(el => el.dataset && el.dataset.tab);
-
-    // Only ever touch elements this module itself added or overrode, and
-    // always undo an override before Foundry's own click handler runs.
-    // An earlier version force-hid every OTHER native section with an
-    // inline style whenever this tab activated — but Foundry's own
-    // tab-switching shows/hides tabs via a CSS class, not by clearing
-    // inline styles, so that inline "display:none" permanently stuck on
-    // every native section and broke every other sidebar tab from then on.
-    let hiddenNativeSection = null;
-
+    // Never try to detect or touch whichever native section currently
+    // happens to be visible — an earlier attempt assumed natives use inline
+    // style.display like our own tab now does, but Foundry hides them with
+    // its own class instead, so that detection silently matched the wrong
+    // element (or none), leaving the real active native tab still occupying
+    // flex space above ours and pushing our content out of view. Instead,
+    // a CSS rule (styles/traveller-trading.css) hides every OTHER ".tab"
+    // sibling purely from the presence of our own "tt-active" class, with
+    // no dependency on Foundry's internal class names at all.
     activateTab = () => {
-      const currentlyVisible = allSections().find(s => s !== section && s.style.display !== "none");
-      if (currentlyVisible) {
-        hiddenNativeSection = currentlyVisible;
-        hiddenNativeSection.style.display = "none";
-      }
-      // Foundry's own CSS hides `.tab` sections unless a class it controls
-      // (only ever applied to tabs it recognizes) says otherwise, so
-      // clearing our inline style here just lets that default-hidden rule
-      // win. Our own "tt-active" class (styles/traveller-trading.css) is
-      // scoped to our own element id and marked !important, so it reliably
-      // overrides whatever Foundry's base stylesheet does for ".tab".
       section.classList.add("tt-active");
       button.setAttribute("aria-pressed", "true");
       controller.mount();
@@ -142,10 +129,6 @@ function injectSidebarTab() {
     const deactivateTab = () => {
       section.classList.remove("tt-active");
       button.setAttribute("aria-pressed", "false");
-      if (hiddenNativeSection) {
-        hiddenNativeSection.style.removeProperty("display");
-        hiddenNativeSection = null;
-      }
     };
 
     button.addEventListener("click", (ev) => {
