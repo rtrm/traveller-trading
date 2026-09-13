@@ -303,6 +303,7 @@ class DestinationMapApp extends TradingWindowBase {
       if (!svgEl || doc.querySelector("parsererror")) throw new Error("Unparseable SVG");
       const viewBox = svgEl.getAttribute("viewBox") || `0 0 ${svgEl.getAttribute("width")} ${svgEl.getAttribute("height")}`;
       this.authentic = { svgMarkup: svgEl.outerHTML, viewBox };
+      console.log(`Traveller Trading | authentic map fetched OK, viewBox="${viewBox}", markup length=${svgEl.outerHTML.length}`);
     } catch (err) {
       console.warn("Traveller Trading | Couldn't render travellermap.com's own jump map, using the built-in fallback map instead", err);
       this.authentic = null;
@@ -324,12 +325,14 @@ class DestinationMapApp extends TradingWindowBase {
     const container = this.root.querySelector(".tt-map-authentic");
     const liveSvg = container?.querySelector("svg");
     const originWorld = this.worlds.find(w => w.Hex === this.originHex && w.Sector === this.originSector);
-    if (!container || !liveSvg || !originWorld) return;
+    console.log("Traveller Trading | calibrate: container=%o liveSvg=%o originWorld=%o", !!container, !!liveSvg, originWorld);
+    if (!container || !liveSvg || !originWorld) { console.log("Traveller Trading | calibrate: aborting, missing container/liveSvg/originWorld"); return; }
 
     let offsetX, offsetY;
     try {
       const norm = s => (s || "").trim().toLowerCase();
       const texts = Array.from(liveSvg.querySelectorAll("text"));
+      console.log(`Traveller Trading | calibrate: ${texts.length} <text> elements found, looking for "${originWorld.Name}" / "${originWorld.Hex}"`);
       let match = texts.find(t => norm(t.textContent) === norm(originWorld.Name));
       if (!match) match = texts.find(t => norm(t.textContent) === norm(originWorld.Hex));
       if (!match) throw new Error("Origin label not found in the fetched map");
@@ -345,6 +348,7 @@ class DestinationMapApp extends TradingWindowBase {
       const theoretical = worldToPixel(originWorld.WorldX ?? 0, originWorld.WorldY ?? 0, JUMPMAP_SCALE);
       offsetX = anchor.x - theoretical.x;
       offsetY = anchor.y - theoretical.y;
+      console.log(`Traveller Trading | calibrate: matched "${match.textContent}", anchor=(${anchor.x.toFixed(1)},${anchor.y.toFixed(1)}) theoretical=(${theoretical.x.toFixed(1)},${theoretical.y.toFixed(1)}) offset=(${offsetX.toFixed(1)},${offsetY.toFixed(1)})`);
     } catch (err) {
       // Fall back to assuming the origin sits at the image's center —
       // travellermap.com's likely (but unconfirmed) convention for a jump
@@ -370,12 +374,15 @@ class DestinationMapApp extends TradingWindowBase {
           cx="${cx.toFixed(1)}" cy="${cy.toFixed(1)}" r="${(JUMPMAP_SCALE * 0.4).toFixed(1)}"></circle>`;
     }).join("");
 
-    const overlay = document.createElementNS("http://www.w3.org/2000/svg", "svg");
-    overlay.setAttribute("class", "tt-map-overlay");
-    overlay.setAttribute("viewBox", this.authentic.viewBox);
-    overlay.setAttribute("data-tt-map-svg", "");
-    overlay.innerHTML = hits;
-    container.appendChild(overlay);
+    // Inserted as markup (parsed by the HTML parser's own built-in SVG
+    // foreign-content handling) rather than building the <svg> via
+    // createElementNS + setting .innerHTML on it — the latter is NOT
+    // consistently supported for SVG elements across browsers, unlike
+    // plain string insertion, which every other rendered element in this
+    // module already relies on successfully.
+    container.insertAdjacentHTML("beforeend", `<svg class="tt-map-overlay" viewBox="${this.authentic.viewBox}" data-tt-map-svg>${hits}</svg>`);
+    const injected = container.querySelector(".tt-map-overlay");
+    console.log(`Traveller Trading | calibrate: overlay injected=${!!injected}, hit circles=${injected?.querySelectorAll("[data-tt-map-world]").length ?? 0}`);
     this._wireMapInteractions();
   }
 
@@ -486,9 +493,12 @@ class DestinationMapApp extends TradingWindowBase {
     const svg = this.root.querySelector("[data-tt-map-svg]");
     const tooltip = this.root.querySelector("[data-tt-map-tooltip]");
     const canvas = this.root.querySelector(".tt-map-canvas");
+    const targets = svg ? svg.querySelectorAll("[data-tt-map-world]") : [];
+    console.log(`Traveller Trading | wireMapInteractions: svg=${!!svg} tooltip=${!!tooltip} canvas=${!!canvas} targets=${targets.length}`);
     if (!svg || !tooltip) return;
-    svg.querySelectorAll("[data-tt-map-world]").forEach(g => {
+    targets.forEach(g => {
       g.addEventListener("mouseenter", () => {
+        console.log(`Traveller Trading | hover: ${g.dataset.name}`);
         tooltip.innerHTML = `
           <b>${esc(g.dataset.name)}</b><br>
           ${esc(g.dataset.sector)} ${esc(g.dataset.hex)}<br>
@@ -504,6 +514,7 @@ class DestinationMapApp extends TradingWindowBase {
       g.addEventListener("mouseleave", () => { tooltip.hidden = true; });
       if (!g.classList.contains("tt-map-origin")) {
         g.addEventListener("click", () => {
+          console.log(`Traveller Trading | click: ${g.dataset.name}`);
           this.onPick({ sector: g.dataset.sector, hex: g.dataset.hex, name: g.dataset.name });
           this.close();
         });
