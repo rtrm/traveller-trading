@@ -31,15 +31,27 @@ function berthUsage(ship) {
 // same field berthUsage() reads) rather than whatever they originally paid.
 const PASSENGER_CARGO_ALLOWANCE = { high: 1, middle: 0.1, basic: 0.01, low: 0.01 };
 
-// Total hold space (in whole tons, rounded up) taken up by every currently
-// boarded (non-refunded) passenger's personal cargo allowance.
+// Hold space taken up by every currently boarded (non-refunded) passenger's
+// personal cargo allowance, rounded UP just enough that subtracting it from
+// the ship's own (possibly fractional — e.g. a 30.7-ton hold) cargoSpace
+// always leaves a whole-number remainder. Plain Math.ceil(raw) only does
+// that when cargoSpace is itself already whole; here the allowance instead
+// absorbs whatever fractional remainder the hold has, e.g. hold 30.7 with
+// 2.35 tons of raw allowance rounds up to 2.7 (30.7 - 2.7 = 28), not 3.
+// Zero passengers always means zero allowance — there's nothing to
+// attribute the hold's own fractional remainder to in that case, so
+// "remaining" is left as whatever cargoSpace already is.
 function passengerCargoTons(ship) {
   let raw = 0;
   for (const p of (ship.passengers || [])) {
     if (p.refunded) continue;
     raw += PASSENGER_CARGO_ALLOWANCE[p.category] || 0;
   }
-  return Math.ceil(raw);
+  raw = Math.round(raw * 1000) / 1000; // absorb float noise from repeated 0.1/0.01 additions
+  if (raw <= 0) return 0;
+  const holdSpace = Number(ship.cargoSpace) || 0;
+  const allocation = holdSpace - Math.floor(holdSpace - raw);
+  return Math.round(allocation * 1000) / 1000;
 }
 
 // Cascading allocation for newly-generated passengers: each category first
