@@ -26,6 +26,22 @@ function berthUsage(ship) {
   return used;
 }
 
+// Personal luggage allowance per boarded passenger, in tons — a berth-class
+// perk, so it's based on `p.category` (the berth they currently occupy,
+// same field berthUsage() reads) rather than whatever they originally paid.
+const PASSENGER_CARGO_ALLOWANCE = { high: 1, middle: 0.1, basic: 0.01, low: 0.01 };
+
+// Total hold space (in whole tons, rounded up) taken up by every currently
+// boarded (non-refunded) passenger's personal cargo allowance.
+function passengerCargoTons(ship) {
+  let raw = 0;
+  for (const p of (ship.passengers || [])) {
+    if (p.refunded) continue;
+    raw += PASSENGER_CARGO_ALLOWANCE[p.category] || 0;
+  }
+  return Math.ceil(raw);
+}
+
 // Cascading allocation for newly-generated passengers: each category first
 // fills its own remaining berths, then any overflow can spill into spare
 // capacity one tier up (Middle -> High, Basic -> Middle, Low -> Basic) —
@@ -341,10 +357,15 @@ class ShipApp extends TradingWindowBase {
     const totalValue = cargo.reduce((s, c) => s + (Number(c.quantity) || 0) * (Number(c.unitValue) || 0), 0);
     const cargoTons = cargo.reduce((s, c) => s + (Number(c.quantity) || 0), 0);
     const freightTons = freight.reduce((s, f) => s + (Number(f.tons) || 0), 0);
-    const totalTons = cargoTons + freightTons;
+    const passengerCargo = isStorage ? 0 : passengerCargoTons(ship);
+    const totalTons = cargoTons + freightTons + passengerCargo;
+    const spaceBreakdown = [
+      freightTons ? `${freightTons} freight` : null,
+      passengerCargo ? `${passengerCargo} passenger cargo` : null
+    ].filter(Boolean).join(", ");
     const spaceLine = isStorage
       ? `${totalTons} tons stored`
-      : `Cargo space used: ${totalTons} / ${ship.cargoSpace || 0} tons${freightTons ? ` (incl. ${freightTons} freight)` : ""}`;
+      : `Cargo space used: ${totalTons} / ${ship.cargoSpace || 0} tons${spaceBreakdown ? ` (incl. ${spaceBreakdown})` : ""}`;
     const freightTotalFare = freight.reduce((s, f) => s + (Number(f.fare) || 0), 0);
     return `
       <div class="tt-cargo">
@@ -462,7 +483,7 @@ class ShipApp extends TradingWindowBase {
 
     const cargoTons = (ship.cargo || []).reduce((s, c) => s + (Number(c.quantity) || 0), 0);
     const freightTons = (ship.freight || []).reduce((s, f) => s + (Number(f.tons) || 0), 0);
-    const availableSpace = Math.max(0, (ship.cargoSpace || 0) - cargoTons - freightTons);
+    const availableSpace = Math.max(0, (ship.cargoSpace || 0) - cargoTons - freightTons - passengerCargoTons(ship));
 
     const selectedLots = await this._showFreightGenerationResults(generation, availableSpace);
     if (!selectedLots || !selectedLots.length) return;
