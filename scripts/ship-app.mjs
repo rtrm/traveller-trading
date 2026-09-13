@@ -5,6 +5,7 @@ import {
 } from "./data.mjs";
 import { PASSENGER_CATEGORIES, passengerCategoryInfo, passengerIncome, RECURRING_COST_PERIODS } from "./constants.mjs";
 import { TradingWindowBase, customSelectHtml, esc, fmtCr } from "./window-base.mjs";
+import { resolveLocation, openDestinationMapApp } from "./destination-map.mjs";
 
 const RANK = { low: 0, basic: 1, middle: 2, high: 3 };
 const instances = new Map(); // docId -> ShipApp
@@ -187,7 +188,11 @@ class ShipApp extends TradingWindowBase {
         <div class="tt-field tt-field-checkbox"><label><input type="checkbox" ${dis} data-tt-field="ship.armed" ${ship.armed ? "checked" : ""}> Armed</label></div>
         <div class="tt-field"><label>Current Location</label><input type="text" ${dis} data-tt-field="ship.location" value="${esc(ship.location || "")}" placeholder="e.g. Drinax"></div>
         <div class="tt-field"><label>Destination</label><input type="text" ${dis} data-tt-field="ship.destination" value="${esc(ship.destination || "")}" placeholder="e.g. Overnale"></div>
-        ${editable ? `<button type="button" class="tt-btn tt-btn-ghost" data-tt-action="arrive" ${ship.destination ? "" : "disabled"} style="margin-bottom:16px;">Arrived at Destination</button>` : ""}
+        ${editable ? `
+        <div class="tt-inline-row" style="margin-bottom:16px;">
+          <button type="button" class="tt-btn tt-btn-ghost" data-tt-action="choose-destination">Choose on Map</button>
+          <button type="button" class="tt-btn tt-btn-ghost" data-tt-action="arrive" ${ship.destination ? "" : "disabled"}>Arrived at Destination</button>
+        </div>` : ""}
         <div class="tt-field"><label>Total Cargo Space (tons)</label><input type="number" ${dis} data-tt-numeric="true" data-tt-field="ship.cargoSpace" value="${ship.cargoSpace || 0}"></div>
         <h4>Berths</h4>
         <div class="tt-inline-row">
@@ -215,6 +220,62 @@ class ShipApp extends TradingWindowBase {
     ship.destination = "";
     await saveShipData(this.doc, ship);
     this._renderContent();
+  }
+
+  // Resolves the ship's free-text Current Location to a sector/hex (via
+  // Traveller Map, disambiguating if the name matches more than one
+  // world), then opens the jump-range map centered on it. Picking a
+  // system there saves it as the Destination.
+  async _action_choose_destination() {
+    if (!canEdit(this.doc)) { ui.notifications.warn("You don't have permission to edit this."); return; }
+    const ship = getShipData(this.doc);
+    if (!(ship.location || "").trim()) { ui.notifications.warn("Set a Current Location first."); return; }
+    const candidates = await resolveLocation(ship.location);
+    if (!candidates.length) { ui.notifications.warn(`Couldn't find "${ship.location}" on Traveller Map.`); return; }
+    let origin = candidates[0];
+    if (candidates.length > 1) {
+      origin = await this._pickLocationCandidate(candidates);
+      if (!origin) return;
+    }
+    openDestinationMapApp({
+      docId: this.docId,
+      originSector: origin.sector,
+      originHex: origin.hex,
+      onPick: async ({ sector, hex, name }) => {
+        const freshShip = getShipData(this.doc);
+        freshShip.destination = `${name} (${sector} ${hex})`;
+        await saveShipData(this.doc, freshShip);
+        this._renderContent();
+      }
+    });
+  }
+
+  _pickLocationCandidate(candidates) {
+    return new Promise(resolve => {
+      const content = `
+        <div id="tt-root">
+          <p class="tt-hint">Multiple matches — pick one:</p>
+          <div class="tt-tm-results">
+            ${candidates.map((c, i) => `<div class="tt-tm-result" data-tt-tm-idx="${i}">${esc(c.name)} &mdash; ${esc(c.sector)} ${esc(c.hex)}</div>`).join("")}
+          </div>
+        </div>`;
+      const dlg = new Dialog({
+        title: "Choose Location",
+        content,
+        buttons: { cancel: { label: "Cancel", callback: () => resolve(null) } },
+        default: "cancel",
+        render: (html) => {
+          html[0].querySelectorAll("[data-tt-tm-idx]").forEach(el => {
+            el.addEventListener("click", () => {
+              resolve(candidates[Number(el.dataset.ttTmIdx)]);
+              dlg.close();
+            });
+          });
+        },
+        close: () => resolve(null)
+      });
+      dlg.render(true);
+    });
   }
 
   async _action_delete_ship() {
