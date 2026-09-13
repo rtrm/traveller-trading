@@ -9,7 +9,46 @@ import { resolveLocation, openDestinationMapApp } from "./destination-map.mjs";
 import { generatePassengers } from "./passenger-gen.mjs";
 
 const RANK = { low: 0, basic: 1, middle: 2, high: 3 };
+const BERTH_RANK_ORDER = ["high", "middle", "basic", "low"]; // top to bottom, for cascading berth allocation
+const NEXT_HIGHER_CATEGORY = { middle: "high", basic: "middle", low: "basic" }; // high has no tier above it
 const instances = new Map(); // docId -> ShipApp
+
+// How many berths of each category are currently occupied by non-refunded
+// passengers — a passenger's own `category` field IS the berth they occupy
+// (upgrading a passenger via the "↑ Upgrade" button changes this without
+// touching their stored income, so this stays accurate after upgrades too).
+function berthUsage(ship) {
+  const used = { high: 0, middle: 0, basic: 0, low: 0 };
+  for (const p of (ship.passengers || [])) {
+    if (!p.refunded && used[p.category] !== undefined) used[p.category]++;
+  }
+  return used;
+}
+
+// Cascading allocation for newly-generated passengers: each category first
+// fills its own remaining berths, then any overflow can spill into spare
+// capacity one tier up (Middle -> High, Basic -> Middle, Low -> Basic) —
+// processed top-down so a tier's own leftover berths are only known once
+// its own passengers have already been seated. Returns, per category,
+// {seatedOwn, upgraded, maxTake} where maxTake = seatedOwn + upgraded is
+// the most of that category's generated passengers that can actually be
+// boarded at all (the rest have nowhere to sit, regardless of price).
+function computeBoardingPlan(ship, generatedCounts) {
+  const used = berthUsage(ship);
+  const berths = ship.berths || {};
+  const plan = {};
+  let spareInTierAbove = 0;
+  for (const cat of BERTH_RANK_ORDER) {
+    const ownCap = Math.max(0, (berths[cat] || 0) - (used[cat] || 0));
+    const generated = generatedCounts[cat] || 0;
+    const seatedOwn = Math.min(generated, ownCap);
+    const overflow = generated - seatedOwn;
+    const upgraded = Math.min(overflow, spareInTierAbove);
+    plan[cat] = { seatedOwn, upgraded, maxTake: seatedOwn + upgraded };
+    spareInTierAbove = ownCap - seatedOwn; // this tier's own leftover, available for the next (lower) tier's overflow
+  }
+  return plan;
+}
 
 // Drag ids a cargo-row drop handler has already claimed (see
 // _action's _onDrop/_onCargoDragEnd below) — a plain module-level Set works
@@ -479,8 +518,7 @@ class ShipApp extends TradingWindowBase {
     const editable = canEdit(doc);
     const passengers = ship.passengers || [];
     const berths = ship.berths || {};
-    const usedByCategory = { high: 0, middle: 0, basic: 0, low: 0 };
-    for (const p of passengers) if (!p.refunded && usedByCategory[p.category] !== undefined) usedByCategory[p.category]++;
+    const usedByCategory = berthUsage(ship);
 
     const berthSummary = PASSENGER_CATEGORIES.map(c =>
       `<span class="tt-berth-chip" style="color:${c.color}">${usedByCategory[c.id]}/${berths[c.id] || 0} ${c.label}</span>`
@@ -489,6 +527,10 @@ class ShipApp extends TradingWindowBase {
     return `
       <div class="tt-passengers">
         <div class="tt-berth-summary">${berthSummary}</div>
+        ${editable && passengers.length ? `
+        <div class="tt-inline-row" style="margin:8px 0 4px;">
+          <button type="button" class="tt-btn tt-btn-ghost" data-tt-action="disembark-passengers">Disembark All Passengers</button>
+        </div>` : ""}
         ${editable ? `
         <div class="tt-panel-box">
           <h3>Trade Passengers</h3>
@@ -591,7 +633,10 @@ class ShipApp extends TradingWindowBase {
       return;
     }
 
-    const taken = await this._showPassengerGenerationResults(generation);
+    const generatedCounts = Object.fromEntries(BERTH_RANK_ORDER.map(c => [c, generation.results[c].count]));
+    const plan = computeBoardingPlan(ship, generatedCounts);
+
+    const taken = await this._showPassengerGenerationResults(generation, plan);
     if (!taken) return;
 
     const { origin: originWorld, destination: destWorld, distanceParsecs } = generation;
@@ -599,27 +644,36 @@ class ShipApp extends TradingWindowBase {
     freshShip.passengers = freshShip.passengers || [];
     let totalIncome = 0;
     const parts = [];
-    for (const category of ["high", "middle", "basic", "low"]) {
-      const count = taken[category] || 0;
-      if (!count) continue;
+    for (const category of BERTH_RANK_ORDER) {
+      const total = Math.max(0, Math.min(taken[category] || 0, plan[category].maxTake));
+      if (!total) continue;
       const fare = passengerIncome(distanceParsecs, category);
       const catInfo = passengerCategoryInfo(category);
-      for (let i = 0; i < count; i++) {
+      // Fills the category's own berths first, then any remainder occupies
+      // spare berths one tier up (per computeBoardingPlan) at THIS
+      // category's fare — same as the existing "↑ Upgrade" button, which
+      // also changes only the berth (category) and never the paid income.
+      const seatedOwn = Math.min(total, plan[category].seatedOwn);
+      const upgraded = total - seatedOwn;
+      const upgradeBerth = NEXT_HIGHER_CATEGORY[category];
+
+      for (let i = 0; i < seatedOwn; i++) {
         freshShip.passengers.push({
-          id: uid(),
-          name: this._generatedPassengerName(category),
-          description: catInfo.label,
-          category,
-          parsecs: distanceParsecs,
-          destination: destWorld.Name || "",
-          income: fare,
-          refunded: false,
-          realTime: new Date().toISOString(),
-          gameDate: getCampaignDate()
+          id: uid(), name: this._generatedPassengerName(category), description: catInfo.label,
+          category, parsecs: distanceParsecs, destination: destWorld.Name || "",
+          income: fare, refunded: false, realTime: new Date().toISOString(), gameDate: getCampaignDate()
         });
       }
-      totalIncome += fare * count;
-      parts.push(`${count} ${catInfo.label}`);
+      for (let i = 0; i < upgraded; i++) {
+        freshShip.passengers.push({
+          id: uid(), name: this._generatedPassengerName(category), description: passengerCategoryInfo(upgradeBerth).label,
+          category: upgradeBerth, parsecs: distanceParsecs, destination: destWorld.Name || "",
+          income: fare, refunded: false, realTime: new Date().toISOString(), gameDate: getCampaignDate()
+        });
+      }
+
+      totalIncome += fare * total;
+      parts.push(upgraded ? `${seatedOwn} ${catInfo.label} + ${upgraded} ${catInfo.label} upgraded to ${passengerCategoryInfo(upgradeBerth).label}` : `${total} ${catInfo.label}`);
     }
     if (!parts.length) return; // nothing taken, nothing to save or pay
 
@@ -633,6 +687,25 @@ class ShipApp extends TradingWindowBase {
     this._renderContent();
   }
 
+  // Clears the whole manifest (boarded and refunded alike) once everyone's
+  // reached the destination — their fares were already posted to Group
+  // Finance when they boarded, so this doesn't touch money, just frees up
+  // every berth for the next leg. Use Refund beforehand for anyone who
+  // shouldn't have been carried.
+  async _action_disembark_passengers() {
+    if (!canEdit(this.doc)) { ui.notifications.warn("You don't have permission to edit this."); return; }
+    const ship = getShipData(this.doc);
+    if (!(ship.passengers || []).length) return;
+    const ok = await Dialog.confirm({
+      title: "Disembark All Passengers",
+      content: "<p>Clear this ship's entire passenger manifest? This frees all berths but does not refund anyone — use Refund first for anyone who shouldn't have been carried.</p>"
+    });
+    if (!ok) return;
+    ship.passengers = [];
+    await saveShipData(this.doc, ship);
+    this._renderContent();
+  }
+
   _generatedPassengerName(category) {
     const nameGen = game.modules.get("traveller-name-generator");
     if (nameGen?.active && typeof nameGen.api?.generateName === "function") {
@@ -641,29 +714,36 @@ class ShipApp extends TradingWindowBase {
     return passengerCategoryInfo(category).label;
   }
 
-  // Shows the roll results per category and lets the GM pick how many of
-  // each to actually take aboard (capped at what was generated) before
-  // resolving with those counts, or null if cancelled.
-  _showPassengerGenerationResults(generation) {
+  // Shows the roll results per category alongside how many can actually be
+  // boarded given berth capacity — own berths first, then any spare
+  // capacity one tier up per computeBoardingPlan — and lets the GM pick how
+  // many of each to take (capped at that boardable count) before resolving
+  // with those totals, or null if cancelled.
+  _showPassengerGenerationResults(generation, plan) {
     const { origin, destination, distanceParsecs, results } = generation;
     return new Promise(resolve => {
       const rows = PASSENGER_CATEGORIES.map(c => {
         const r = results[c.id];
         const fare = passengerIncome(distanceParsecs, c.id);
+        const p = plan[c.id];
+        const upgradeNote = p.upgraded > 0
+          ? `<br><span class="tt-source-name">incl. ${p.upgraded} upgraded to ${passengerCategoryInfo(NEXT_HIGHER_CATEGORY[c.id]).label}</span>`
+          : "";
         return `
           <tr>
             <td><span class="tt-badge" style="color:${c.color}">${c.label}</span></td>
             <td class="tt-mono">${r.roll} (${r.diceCount}D6)</td>
             <td class="tt-mono">${r.count}</td>
+            <td class="tt-mono">${p.maxTake}${upgradeNote}</td>
             <td class="tt-mono">${fmtCr(fare)}</td>
-            <td><input type="number" class="tt-cell-input" data-tt-take="${c.id}" min="0" max="${r.count}" value="${r.count}" style="width:60px;"></td>
+            <td><input type="number" class="tt-cell-input" data-tt-take="${c.id}" min="0" max="${p.maxTake}" value="${p.maxTake}" style="width:60px;"></td>
           </tr>`;
       }).join("");
       const content = `
         <div id="tt-root">
-          <p class="tt-hint">${esc(origin.Name || "")} &rarr; ${esc(destination.Name || "")}, ${distanceParsecs} parsec${distanceParsecs === 1 ? "" : "s"}.</p>
+          <p class="tt-hint">${esc(origin.Name || "")} &rarr; ${esc(destination.Name || "")}, ${distanceParsecs} parsec${distanceParsecs === 1 ? "" : "s"}. "Can board" is capped by remaining berths — own category first, then any spare berths one tier up (paying this category's fare).</p>
           <table class="tt-table">
-            <thead><tr><th>Category</th><th>Roll</th><th>Generated</th><th>Fare</th><th>Take</th></tr></thead>
+            <thead><tr><th>Category</th><th>Roll</th><th>Generated</th><th>Can Board</th><th>Fare</th><th>Take</th></tr></thead>
             <tbody>${rows}</tbody>
           </table>
         </div>`;
@@ -678,8 +758,7 @@ class ShipApp extends TradingWindowBase {
               const taken = {};
               for (const c of PASSENGER_CATEGORIES) {
                 const input = root.querySelector(`[data-tt-take="${c.id}"]`);
-                const max = results[c.id].count;
-                taken[c.id] = Math.max(0, Math.min(max, Number(input?.value) || 0));
+                taken[c.id] = Math.max(0, Math.min(plan[c.id].maxTake, Number(input?.value) || 0));
               }
               resolve(taken);
             }
