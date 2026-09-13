@@ -341,9 +341,20 @@ class DestinationMapApp extends TradingWindowBase {
       const pt = liveSvg.createSVGPoint();
       pt.x = bbox.x + bbox.width / 2;
       pt.y = bbox.y + bbox.height / 2;
-      const ctm = match.getCTM();
-      if (!ctm) throw new Error("No CTM available for the origin label");
-      const anchor = pt.matrixTransform(ctm); // local space -> liveSvg's own viewBox units
+      // getCTM() maps all the way to the SVG's rendered CSS pixel viewport
+      // (e.g. ~700px wide once scaled up by "width:100%"), NOT to the
+      // fixed viewBox unit space our own worldToPixel() uses — confirmed
+      // live: an anchor of (353.7, 435.3) fell outside a "0 0 236 254"
+      // viewBox. Dividing the label's screen-space CTM by the root SVG's
+      // OWN screen-space CTM cancels that outer CSS scaling (and anything
+      // else common to both, like page position), leaving exactly the
+      // transform from the label's local space into the root's internal
+      // viewBox coordinate system.
+      const elementScreenCTM = match.getScreenCTM();
+      const rootScreenCTM = liveSvg.getScreenCTM();
+      if (!elementScreenCTM || !rootScreenCTM) throw new Error("No screen CTM available for the origin label");
+      const localCTM = rootScreenCTM.inverse().multiply(elementScreenCTM);
+      const anchor = pt.matrixTransform(localCTM); // local space -> liveSvg's own viewBox units
 
       const theoretical = worldToPixel(originWorld.WorldX ?? 0, originWorld.WorldY ?? 0, JUMPMAP_SCALE);
       offsetX = anchor.x - theoretical.x;
