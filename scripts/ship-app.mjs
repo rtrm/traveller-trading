@@ -7,6 +7,7 @@ import { PASSENGER_CATEGORIES, passengerCategoryInfo, passengerIncome, RECURRING
 import { TradingWindowBase, customSelectHtml, esc, fmtCr } from "./window-base.mjs";
 import { resolveLocation, openDestinationMapApp } from "./destination-map.mjs";
 import { generatePassengers } from "./passenger-gen.mjs";
+import { generateFreight, LOT_SIZES } from "./freight-gen.mjs";
 
 const RANK = { low: 0, basic: 1, middle: 2, high: 3 };
 const BERTH_RANK_ORDER = ["high", "middle", "basic", "low"]; // top to bottom, for cascading berth allocation
@@ -180,6 +181,8 @@ class ShipApp extends TradingWindowBase {
       if (cargoField) { await this._onCargoFieldChange(cargoField); return; }
       const passField = e.target.closest("[data-tt-pass-field]");
       if (passField) { await this._onPassengerFieldChange(passField); return; }
+      const freightField = e.target.closest("[data-tt-freight-field]");
+      if (freightField) { await this._onFreightFieldChange(freightField); return; }
     });
   }
 
@@ -334,11 +337,15 @@ class ShipApp extends TradingWindowBase {
     const isStorage = doc.getFlag(MODULE_ID, "kind") === "storage";
     const editable = canEdit(doc);
     const cargo = ship.cargo || [];
+    const freight = isStorage ? [] : (ship.freight || []);
     const totalValue = cargo.reduce((s, c) => s + (Number(c.quantity) || 0) * (Number(c.unitValue) || 0), 0);
-    const totalTons = cargo.reduce((s, c) => s + (Number(c.quantity) || 0), 0);
+    const cargoTons = cargo.reduce((s, c) => s + (Number(c.quantity) || 0), 0);
+    const freightTons = freight.reduce((s, f) => s + (Number(f.tons) || 0), 0);
+    const totalTons = cargoTons + freightTons;
     const spaceLine = isStorage
       ? `${totalTons} tons stored`
-      : `Cargo space used: ${totalTons} / ${ship.cargoSpace || 0} tons`;
+      : `Cargo space used: ${totalTons} / ${ship.cargoSpace || 0} tons${freightTons ? ` (incl. ${freightTons} freight)` : ""}`;
+    const freightTotalFare = freight.reduce((s, f) => s + (Number(f.fare) || 0), 0);
     return `
       <div class="tt-cargo">
         <p class="tt-hint">Drag an Item here from the Items directory, an actor's inventory, or another ship/warehouse to add it to the hold. Drag a row out to move it elsewhere.</p>
@@ -362,7 +369,189 @@ class ShipApp extends TradingWindowBase {
           </tbody>
         </table>
         <div class="tt-field"><label>Notes</label><textarea ${editable ? "" : "disabled"} data-tt-field="ship.cargoNotes" rows="3">${esc(ship.cargoNotes)}</textarea></div>
+        ${!isStorage ? `
+        <div class="tt-panel-box" style="margin-top:16px;">
+          <h3>Freight</h3>
+          <p class="tt-hint">Rolls Major/Minor/Incidental cargo lots for the current trip (Current Location &rarr; Destination on the Configuration tab) — same trip basis as Generate Passengers. Payment is on delivery.</p>
+          <div class="tt-inline-row">
+            ${editable ? `<button type="button" class="tt-btn" data-tt-action="generate-freight">Generate Freight</button>` : ""}
+            ${editable && freight.length ? `<button type="button" class="tt-btn tt-btn-ghost" data-tt-action="deliver-freight">Deliver All Freight (${fmtCr(freightTotalFare)})</button>` : ""}
+          </div>
+          <table class="tt-table" style="margin-top:10px;">
+            <thead><tr><th>Lot</th><th>Tons</th><th>Notes</th><th>Fare (on delivery)</th><th>Destination</th><th></th></tr></thead>
+            <tbody>
+              ${freight.map(f => this._freightRowHtml(f, editable)).join("") || `<tr><td colspan="6" class="tt-empty">No freight aboard.</td></tr>`}
+            </tbody>
+          </table>
+        </div>` : ""}
       </div>`;
+  }
+
+  _freightRowHtml(f, editable) {
+    return `
+      <tr>
+        <td>${esc(f.sizeLabel || f.sizeId)}</td>
+        <td class="tt-mono">${f.tons}</td>
+        <td><input type="text" ${editable ? "" : "disabled"} class="tt-cell-input" data-tt-freight-field="notes" data-id="${f.id}" value="${esc(f.notes || "")}"></td>
+        <td class="tt-mono">${fmtCr(f.fare)}</td>
+        <td><input type="text" ${editable ? "" : "disabled"} class="tt-cell-input" data-tt-freight-field="destination" data-id="${f.id}" value="${esc(f.destination || "")}"></td>
+        <td>${editable ? `<button type="button" class="tt-icon-btn danger" data-tt-action="remove-freight" data-id="${f.id}">Remove</button>` : ""}</td>
+      </tr>`;
+  }
+
+  async _onFreightFieldChange(el) {
+    if (!canEdit(this.doc)) { ui.notifications.warn("You don't have permission to edit this."); return; }
+    const ship = getShipData(this.doc);
+    const row = (ship.freight || []).find(f => f.id === el.dataset.id);
+    if (!row) return;
+    row[el.dataset.ttFreightField] = el.value;
+    await saveShipData(this.doc, ship);
+    this._renderContent();
+  }
+
+  async _action_remove_freight(btn) {
+    if (!canEdit(this.doc)) return;
+    const ship = getShipData(this.doc);
+    ship.freight = (ship.freight || []).filter(f => f.id !== btn.dataset.id);
+    await saveShipData(this.doc, ship);
+    this._renderContent();
+  }
+
+  // Freight is paid on delivery, not on loading — this posts one combined
+  // payment for everything currently aboard, then clears the manifest.
+  async _action_deliver_freight() {
+    if (!canEdit(this.doc)) { ui.notifications.warn("You don't have permission to edit this."); return; }
+    const ship = getShipData(this.doc);
+    const freight = ship.freight || [];
+    if (!freight.length) return;
+    const total = freight.reduce((s, f) => s + (Number(f.fare) || 0), 0);
+    const ok = await Dialog.confirm({ title: "Deliver Freight", content: `<p>Deliver all ${freight.length} freight lot(s) and collect ${fmtCr(total)}?</p>` });
+    if (!ok) return;
+    ship.freight = [];
+    await saveShipData(this.doc, ship);
+    const financeDoc = await getFinanceDoc();
+    await postTransaction(financeDoc, {
+      amount: total,
+      description: `${ship.name}: Freight delivered (${freight.length} lot${freight.length === 1 ? "" : "s"})`,
+      source: `ship:${this.docId}`
+    });
+    this._renderContent();
+  }
+
+  // Rolls Major/Minor/Incidental freight lots for the ship's current trip,
+  // then lets the GM pick which whole lots to load (capped by remaining
+  // hold space, shared with regular cargo and anything already aboard).
+  async _action_generate_freight() {
+    if (!canEdit(this.doc)) { ui.notifications.warn("You don't have permission to edit this."); return; }
+    const ship = getShipData(this.doc);
+    const endpoints = await this._resolveTripEndpoints(ship);
+    if (!endpoints) return;
+    const { origin, destination } = endpoints;
+
+    let generation;
+    try {
+      generation = await generateFreight({
+        skills: ship.skills,
+        originSector: origin.sector, originHex: origin.hex,
+        destSector: destination.sector, destHex: destination.hex
+      });
+    } catch (err) {
+      ui.notifications.warn(err.message || "Couldn't generate freight.");
+      return;
+    }
+
+    const cargoTons = (ship.cargo || []).reduce((s, c) => s + (Number(c.quantity) || 0), 0);
+    const freightTons = (ship.freight || []).reduce((s, f) => s + (Number(f.tons) || 0), 0);
+    const availableSpace = Math.max(0, (ship.cargoSpace || 0) - cargoTons - freightTons);
+
+    const selectedLots = await this._showFreightGenerationResults(generation, availableSpace);
+    if (!selectedLots || !selectedLots.length) return;
+
+    const freshShip = getShipData(this.doc);
+    freshShip.freight = freshShip.freight || [];
+    for (const lot of selectedLots) {
+      freshShip.freight.push({
+        id: uid(),
+        sizeId: lot.sizeId,
+        sizeLabel: LOT_SIZES[lot.sizeId]?.label || lot.sizeId,
+        tons: lot.tons,
+        fare: lot.tons * generation.ratePerTon,
+        notes: "",
+        destination: generation.destination.Name || "",
+        realTime: new Date().toISOString(),
+        gameDate: getCampaignDate()
+      });
+    }
+    await saveShipData(this.doc, freshShip);
+    const totalTons = selectedLots.reduce((s, l) => s + l.tons, 0);
+    ui.notifications.info(`Loaded ${selectedLots.length} freight lot(s), ${totalTons} tons. Payment due on delivery.`);
+    this._renderContent();
+  }
+
+  // Shows every generated lot (flattened across all three size categories)
+  // as a checkbox row with a live running total against available hold
+  // space — checkboxes that would push the total over capacity are
+  // disabled rather than letting the GM confirm an overloaded hold, since
+  // a lot can only be taken whole or not at all. Resolves with the
+  // selected lots, or null if cancelled.
+  _showFreightGenerationResults(generation, availableSpace) {
+    const { origin, destination, distanceParsecs, ratePerTon, results } = generation;
+    const flatLots = [];
+    for (const sizeId of ["major", "minor", "incidental"]) {
+      (results[sizeId]?.lots || []).forEach((tons, idx) => flatLots.push({ key: `${sizeId}-${idx}`, sizeId, tons }));
+    }
+    return new Promise(resolve => {
+      const rows = flatLots.map(lot => `
+        <tr>
+          <td><input type="checkbox" data-tt-freight-lot data-key="${lot.key}" data-tons="${lot.tons}"></td>
+          <td>${esc(LOT_SIZES[lot.sizeId]?.label || lot.sizeId)}</td>
+          <td class="tt-mono">${lot.tons}</td>
+          <td class="tt-mono">${fmtCr(lot.tons * ratePerTon)}</td>
+        </tr>`).join("");
+      const content = `
+        <div id="tt-root">
+          <p class="tt-hint">${esc(origin.Name || "")} &rarr; ${esc(destination.Name || "")}, ${distanceParsecs} parsec${distanceParsecs === 1 ? "" : "s"}. Rate: ${fmtCr(ratePerTon)}/ton. A lot must be taken whole or not at all.</p>
+          <p class="tt-hint" data-tt-freight-space-status></p>
+          <div style="max-height:320px;overflow-y:auto;">
+            <table class="tt-table">
+              <thead><tr><th></th><th>Lot</th><th>Tons</th><th>Fare</th></tr></thead>
+              <tbody>${rows || `<tr><td colspan="4" class="tt-empty">No freight lots generated.</td></tr>`}</tbody>
+            </table>
+          </div>
+        </div>`;
+      const dlg = new Dialog({
+        title: "Generate Freight",
+        content,
+        buttons: {
+          confirm: {
+            label: "Load Selected Freight",
+            callback: (html) => {
+              const root = html[0];
+              const checked = Array.from(root.querySelectorAll("[data-tt-freight-lot]:checked"));
+              resolve(checked.map(cb => flatLots.find(l => l.key === cb.dataset.key)).filter(Boolean));
+            }
+          },
+          cancel: { label: "Cancel", callback: () => resolve(null) }
+        },
+        default: "confirm",
+        render: (html) => {
+          const root = html[0];
+          const status = root.querySelector("[data-tt-freight-space-status]");
+          const checkboxes = Array.from(root.querySelectorAll("[data-tt-freight-lot]"));
+          const updateStatus = () => {
+            const used = checkboxes.filter(cb => cb.checked).reduce((s, cb) => s + Number(cb.dataset.tons), 0);
+            if (status) status.textContent = `Selected: ${used} / ${availableSpace} tons`;
+            checkboxes.forEach(cb => {
+              if (!cb.checked) cb.disabled = (used + Number(cb.dataset.tons)) > availableSpace;
+            });
+          };
+          checkboxes.forEach(cb => cb.addEventListener("change", updateStatus));
+          updateStatus();
+        },
+        close: () => resolve(null)
+      });
+      dlg.render(true);
+    });
   }
 
   // Accepts a drop anywhere in the window, regardless of which tab is
@@ -595,31 +784,43 @@ class ShipApp extends TradingWindowBase {
     }
   }
 
-  // Resolves the ship's Current Location and Destination (same lookup as
-  // "Choose on Map"), rolls all four passenger categories for that trip,
-  // then lets the GM choose how many of each to actually board before
-  // creating the records and posting one combined payment.
-  async _action_generate_passengers() {
-    if (!canEdit(this.doc)) { ui.notifications.warn("You don't have permission to edit this."); return; }
-    const ship = getShipData(this.doc);
-    if (!(ship.location || "").trim()) { ui.notifications.warn("Set a Current Location first."); return; }
-    if (!(ship.destination || "").trim()) { ui.notifications.warn("Set a Destination first."); return; }
+  // Resolves the ship's Current Location and Destination fields (via
+  // Traveller Map, disambiguating either one if the name matches more than
+  // one world) — shared by both Generate Passengers and Generate Freight,
+  // which both roll against the same trip. Returns null (after already
+  // warning the user) if either field is unset, unresolvable, or the
+  // disambiguation dialog is cancelled.
+  async _resolveTripEndpoints(ship) {
+    if (!(ship.location || "").trim()) { ui.notifications.warn("Set a Current Location first."); return null; }
+    if (!(ship.destination || "").trim()) { ui.notifications.warn("Set a Destination first."); return null; }
 
     const originCandidates = await resolveLocation(ship.location);
-    if (!originCandidates.length) { ui.notifications.warn(`Couldn't find "${ship.location}" on Traveller Map.`); return; }
+    if (!originCandidates.length) { ui.notifications.warn(`Couldn't find "${ship.location}" on Traveller Map.`); return null; }
     let origin = originCandidates[0];
     if (originCandidates.length > 1) {
       origin = await this._pickLocationCandidate(originCandidates);
-      if (!origin) return;
+      if (!origin) return null;
     }
 
     const destCandidates = await resolveLocation(ship.destination);
-    if (!destCandidates.length) { ui.notifications.warn(`Couldn't find "${ship.destination}" on Traveller Map.`); return; }
+    if (!destCandidates.length) { ui.notifications.warn(`Couldn't find "${ship.destination}" on Traveller Map.`); return null; }
     let destination = destCandidates[0];
     if (destCandidates.length > 1) {
       destination = await this._pickLocationCandidate(destCandidates);
-      if (!destination) return;
+      if (!destination) return null;
     }
+    return { origin, destination };
+  }
+
+  // Rolls all four passenger categories for the ship's current trip, then
+  // lets the GM choose how many of each to actually board before creating
+  // the records and posting one combined payment.
+  async _action_generate_passengers() {
+    if (!canEdit(this.doc)) { ui.notifications.warn("You don't have permission to edit this."); return; }
+    const ship = getShipData(this.doc);
+    const endpoints = await this._resolveTripEndpoints(ship);
+    if (!endpoints) return;
+    const { origin, destination } = endpoints;
 
     let generation;
     try {

@@ -129,6 +129,7 @@ export async function createShipDoc(name, isStorage) {
         skills: { steward: 0, broker: 0, carouse: 0, streetwise: 0, admin: 0 },
         cargo: [], cargoNotes: "",
         passengers: [],
+        freight: [],
         costs: { recurring: [] }
       };
   return JournalEntry.create({
