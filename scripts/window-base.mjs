@@ -15,8 +15,13 @@ export function customSelectHtml(handler, items, selected, extraClass) {
   </div>`;
 }
 
-function bindSelectAndActionDelegation(root, controller) {
-  root.addEventListener("click", async (e) => {
+// Open/close behaviour for the custom dropdown markup produced by
+// customSelectHtml(). Exported on its own (as well as wired into every
+// TradingWindowBase below) so a standalone Foundry Dialog's content — which
+// lives outside any window's #tt-root — can use the same dropdown component
+// via its own `render` callback.
+export function bindCustomSelects(root) {
+  root.addEventListener("click", (e) => {
     const selectToggle = e.target.closest("[data-tt-select-toggle]");
     if (selectToggle) {
       const menu = selectToggle.nextElementSibling;
@@ -33,13 +38,18 @@ function bindSelectAndActionDelegation(root, controller) {
       wrapper.querySelector(".tt-select-menu").classList.remove("open");
       return;
     }
+    root.querySelectorAll(".tt-select-menu.open").forEach(m => m.classList.remove("open"));
+  });
+}
+
+function bindSelectAndActionDelegation(root, controller) {
+  bindCustomSelects(root);
+  root.addEventListener("click", async (e) => {
     const actionBtn = e.target.closest("[data-tt-action]");
     if (actionBtn) {
       const handler = "_action_" + actionBtn.dataset.ttAction.replace(/-/g, "_");
       if (typeof controller[handler] === "function") await controller[handler](actionBtn);
-      return;
     }
-    root.querySelectorAll(".tt-select-menu.open").forEach(m => m.classList.remove("open"));
   });
 }
 

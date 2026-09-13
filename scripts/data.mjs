@@ -36,6 +36,23 @@ export function uid() {
   return Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
 }
 
+// Traveller's own calendar convention writes dates as DDD-YYYY (day of year,
+// then year) — e.g. "001-1105". getCampaignDate()/gameDayIndex() above store
+// and key everything as YYYY-DDD instead, so recurring/elapsed-day math and
+// existing log entries keep working unchanged; these two just reformat for
+// display where a screen wants the conventional in-fiction order.
+export function formatGameDate(stored) {
+  const m = /^(\d+)-(\d+)$/.exec(stored || "");
+  return m ? `${m[2]}-${m[1]}` : (stored || "");
+}
+
+export function dayIndexToGameDate(idx) {
+  if (typeof idx !== "number" || !Number.isFinite(idx)) return "";
+  const year = Math.floor(idx / 365);
+  const day = idx - year * 365;
+  return `${String(day).padStart(3, "0")}-${year}`;
+}
+
 // ---------------------------------------------------------------------------
 // Document access. Finance and each ship/storage are stored as JournalEntry
 // documents (in a dedicated folder) rather than a world setting, because
@@ -102,7 +119,7 @@ export async function createShipDoc(name, isStorage) {
   if (!game.user.isGM) return null;
   const folder = await getOrCreateFolder();
   const data = isStorage
-    ? { name, cargo: [], cargoNotes: "" }
+    ? { name, cargo: [], cargoNotes: "", costs: { recurring: [] } }
     : {
         name, type: "", armed: false,
         cargoSpace: 0,
@@ -201,7 +218,8 @@ export async function processRecurring(financeDoc) {
   }
 
   for (const shipDoc of getShipDocs()) {
-    if (shipDoc.getFlag(MODULE_ID, FLAG_KIND) !== "ship") continue;
+    const kind = shipDoc.getFlag(MODULE_ID, FLAG_KIND);
+    if (kind !== "ship" && kind !== "storage") continue;
     const ship = getShipData(shipDoc);
     const recurringCosts = (ship.costs && ship.costs.recurring) || [];
     let shipChanged = false;

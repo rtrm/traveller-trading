@@ -1,13 +1,76 @@
-import { MODULE_ID } from "./constants.mjs";
+import { MODULE_ID, DEFAULT_ITEM_ICON } from "./constants.mjs";
 import {
   getFinanceDoc, postTransaction, getShipData, saveShipData, deleteShipDoc, canEdit,
-  getCampaignDate, uid
+  getCampaignDate, gameDayIndex, uid
 } from "./data.mjs";
 import { PASSENGER_CATEGORIES, passengerCategoryInfo, passengerIncome, RECURRING_COST_PERIODS } from "./constants.mjs";
 import { TradingWindowBase, customSelectHtml, esc, fmtCr } from "./window-base.mjs";
 
 const RANK = { low: 0, basic: 1, middle: 2, high: 3 };
 const instances = new Map(); // docId -> ShipApp
+
+// Drag ids a cargo-row drop handler has already claimed (see
+// _action's _onDrop/_onCargoDragEnd below) — a plain module-level Set works
+// because every ShipApp instance imports this same module singleton, so a
+// claim made by the window that RECEIVES a drop is visible to the window
+// that STARTED the drag, letting its dragend tell "handled by one of our
+// own windows" apart from "landed somewhere we don't control (an actor
+// sheet)" without any direct reference between the two app instances.
+const claimedDragIds = new Set();
+function claimDrag(dragId) {
+  if (!dragId) return;
+  claimedDragIds.add(dragId);
+  setTimeout(() => claimedDragIds.delete(dragId), 10000);
+}
+
+// Merges a dragged/dropped quantity into an existing cargo row for the same
+// item (matched by its source Item's uuid and current price/ton) rather
+// than piling up a separate row per drop, so the hold's total stays a
+// single accurate line per good.
+function addOrMergeCargo(ship, { itemName, unitValue, img, sourceUuid, quantity }) {
+  ship.cargo = ship.cargo || [];
+  const existing = sourceUuid && ship.cargo.find(c => c.sourceUuid === sourceUuid && Number(c.unitValue) === Number(unitValue));
+  if (existing) {
+    existing.quantity = (Number(existing.quantity) || 0) + quantity;
+    if (img && !existing.img) existing.img = img;
+  } else {
+    ship.cargo.push({ id: uid(), itemName, quantity, unitValue, notes: "", sourceUuid, img: img || DEFAULT_ITEM_ICON });
+  }
+}
+
+// Reduces a cargo row by the given quantity, dropping the row entirely once
+// it hits zero (used both for the "remove" button and for the source side
+// of a cargo transfer).
+function removeCargoQuantity(ship, cargoId, quantity) {
+  ship.cargo = ship.cargo || [];
+  const row = ship.cargo.find(c => c.id === cargoId);
+  if (!row) return;
+  row.quantity = (Number(row.quantity) || 0) - quantity;
+  if (row.quantity <= 0) ship.cargo = ship.cargo.filter(c => c.id !== cargoId);
+}
+
+// A single-field numeric Dialog, wrapped in the shared "#tt-root" id so the
+// module's scoped CSS reaches it (Dialog content renders outside any
+// window's own #tt-root — see the matching note in finance-app.mjs).
+// Resolves null on cancel or an empty/zero entry, so callers can treat
+// falsy as "nothing to do" uniformly.
+async function promptQuantity({ title, label, defaultValue, max }) {
+  const content = `
+    <div id="tt-root">
+      <div class="tt-field">
+        <label>${esc(label)}</label>
+        <input type="number" id="tt-dlg-qty" min="0" ${max != null ? `max="${max}"` : ""} value="${defaultValue}">
+      </div>
+    </div>`;
+  const result = await Dialog.prompt({
+    title,
+    content,
+    label: "Confirm",
+    callback: (html) => Math.max(0, Number(html[0].querySelector("#tt-dlg-qty").value) || 0),
+    rejectClose: false
+  });
+  return result || null;
+}
 
 export function openShipApp(docId) {
   const existing = instances.get(docId);
@@ -30,7 +93,7 @@ class ShipApp extends TradingWindowBase {
   constructor(docId, options) {
     super(options);
     this.docId = docId;
-    this.shipTab = "config";
+    this.shipTab = "config"; // reset to "cargo" for storage in _renderContent — storage has no config/passengers tabs
     // Set synchronously (game.journal.get is not async) so the window's
     // initial title, read by Foundry before _load() ever runs, is already
     // correct instead of momentarily showing the generic fallback.
@@ -64,8 +127,14 @@ class ShipApp extends TradingWindowBase {
 
   activateListeners(html) {
     super.activateListeners(html);
+    this.root.addEventListener("dragenter", (e) => {
+      console.log(`Traveller Trading | dragenter on "${this.doc?.name}"`);
+      e.preventDefault();
+    });
     this.root.addEventListener("dragover", (e) => e.preventDefault());
     this.root.addEventListener("drop", (e) => this._onDrop(e));
+    this.root.addEventListener("dragstart", (e) => this._onCargoDragStart(e));
+    this.root.addEventListener("dragend", (e) => this._onCargoDragEnd(e));
     this.root.addEventListener("change", async (e) => {
       const field = e.target.closest("[data-tt-field]");
       if (field) { await this._onFieldChange(field); return; }
@@ -86,14 +155,14 @@ class ShipApp extends TradingWindowBase {
     if (titleEl) titleEl.textContent = this.title;
     const kind = this.doc.getFlag(MODULE_ID, "kind");
     const isStorage = kind === "storage";
-    let tabsHtml = "";
-    if (!isStorage) {
-      const tabs = [["cargo", "Cargo"], ["passengers", "Passengers"], ["costs", "Costs"], ["config", "Configuration"]];
-      tabsHtml = `<div class="tt-subtabs">${tabs.map(([id, label]) =>
-        `<button type="button" class="tt-subtab ${this.shipTab === id ? "active" : ""}" data-tt-action="ship-tab" data-tt-shiptab="${id}">${label}</button>`
-      ).join("")}</div>`;
-    }
-    const body = isStorage ? this._cargoHtml(this.doc) : this._shipTabHtml(this.doc);
+    if (isStorage && !["cargo", "costs"].includes(this.shipTab)) this.shipTab = "cargo";
+    const tabs = isStorage
+      ? [["cargo", "Cargo"], ["costs", "Costs"]]
+      : [["cargo", "Cargo"], ["passengers", "Passengers"], ["costs", "Costs"], ["config", "Configuration"]];
+    const tabsHtml = `<div class="tt-subtabs">${tabs.map(([id, label]) =>
+      `<button type="button" class="tt-subtab ${this.shipTab === id ? "active" : ""}" data-tt-action="ship-tab" data-tt-shiptab="${id}">${label}</button>`
+    ).join("")}</div>`;
+    const body = this._shipTabHtml(this.doc);
     this.root.innerHTML = `<div class="tt-ship">${tabsHtml}<div class="tt-ship-body">${body}</div></div>`;
   }
 
@@ -158,14 +227,19 @@ class ShipApp extends TradingWindowBase {
       : `Cargo space used: ${totalTons} / ${ship.cargoSpace || 0} tons`;
     return `
       <div class="tt-cargo">
-        <p class="tt-hint">Drag an Item from the Items directory here to add it to the hold.</p>
+        <p class="tt-hint">Drag an Item here from the Items directory, an actor's inventory, or another ship/warehouse to add it to the hold. Drag a row out to move it elsewhere.</p>
         <div class="tt-cargo-summary">${spaceLine} &middot; Total value: ${fmtCr(totalValue)}</div>
         <table class="tt-table">
           <thead><tr><th>Item</th><th>Qty (t)</th><th>Base Value / t</th><th>Total Base Value</th><th></th></tr></thead>
           <tbody>
             ${cargo.map(c => `
               <tr>
-                <td>${esc(c.itemName)}</td>
+                <td class="tt-cargo-item">
+                  <div class="tt-cargo-drag" data-tt-cargo-row data-id="${c.id}" ${editable ? 'draggable="true"' : ""}>
+                    <img class="tt-cargo-icon" src="${esc(c.img || DEFAULT_ITEM_ICON)}" alt="">
+                    <span>${esc(c.itemName)}</span>
+                  </div>
+                </td>
                 <td><input type="number" ${editable ? "" : "disabled"} class="tt-cell-input" data-tt-cargo-field="quantity" data-id="${c.id}" value="${c.quantity}"></td>
                 <td><input type="number" ${editable ? "" : "disabled"} class="tt-cell-input" data-tt-cargo-field="unitValue" data-id="${c.id}" value="${c.unitValue}"></td>
                 <td>${fmtCr((Number(c.quantity) || 0) * (Number(c.unitValue) || 0))}</td>
@@ -177,19 +251,142 @@ class ShipApp extends TradingWindowBase {
       </div>`;
   }
 
+  // Accepts a drop anywhere in the window, regardless of which tab is
+  // currently showing — the drop is always cargo, so it's always handled
+  // and the view switches to the Cargo tab to show the result.
   async _onDrop(event) {
     event.preventDefault();
-    if (this.shipTab !== "cargo") return;
+    console.log(`Traveller Trading | drop received on "${this.doc?.name}" (${this.docId})`);
     let data;
-    try { data = JSON.parse(event.dataTransfer.getData("text/plain")); } catch (err) { return; }
-    if (!data?.uuid || data.type !== "Item") return;
+    try { data = JSON.parse(event.dataTransfer.getData("text/plain")); } catch (err) {
+      console.log("Traveller Trading | drop ignored: payload wasn't JSON", err);
+      return;
+    }
+    console.log("Traveller Trading | drop payload", data);
+    if (!data?.uuid || data.type !== "Item") { console.log("Traveller Trading | drop ignored: not an Item-shaped payload"); return; }
+    if (!canEdit(this.doc)) {
+      console.log(`Traveller Trading | drop blocked: no edit permission on "${this.doc?.name}"`);
+      ui.notifications.warn("You don't have permission to add cargo here.");
+      return;
+    }
+
+    if (data.ttCargo) {
+      // One of our own cargo rows, dragged from another (or this) ship/
+      // warehouse window — claimed immediately (before any await) so the
+      // dragging window's dragend handler knows not to also treat this as
+      // a drop it doesn't control.
+      claimDrag(data.ttCargo.dragId);
+      if (data.ttCargo.docId === this.docId) { console.log("Traveller Trading | drop ignored: dropped back on its own hold"); return; }
+      const sourceDoc = game.journal.get(data.ttCargo.docId);
+      if (!sourceDoc) { console.log(`Traveller Trading | drop ignored: source doc ${data.ttCargo.docId} not found`); return; }
+      const available = Number(data.ttCargo.quantity) || 0;
+      const amount = await promptQuantity({
+        title: "Move Cargo",
+        label: `Move how many tons of ${data.ttCargo.itemName} (of ${available} available)?`,
+        defaultValue: available,
+        max: available
+      });
+      if (!amount) { console.log("Traveller Trading | move cancelled or zero quantity entered"); return; }
+      const moved = Math.min(amount, available);
+      const sourceShip = getShipData(sourceDoc);
+      removeCargoQuantity(sourceShip, data.ttCargo.cargoId, moved);
+      await saveShipData(sourceDoc, sourceShip);
+      const destShip = getShipData(this.doc);
+      addOrMergeCargo(destShip, { itemName: data.ttCargo.itemName, unitValue: data.ttCargo.unitValue, img: data.ttCargo.img, sourceUuid: data.uuid, quantity: moved });
+      await saveShipData(this.doc, destShip);
+      this.shipTab = "cargo";
+      this._renderContent();
+      return;
+    }
+
+    // A fresh Item — from the Items directory/a compendium, or an actor's
+    // own inventory (in which case this is also a move: the carried amount
+    // is removed from the actor once added here).
     const item = await fromUuid(data.uuid);
-    if (!item) return;
-    if (!canEdit(this.doc)) { ui.notifications.warn("You don't have permission to edit this cargo hold."); return; }
-    const ship = getShipData(this.doc);
-    ship.cargo = ship.cargo || [];
+    if (!item) { console.log(`Traveller Trading | drop ignored: fromUuid("${data.uuid}") resolved to nothing`); return; }
+    const fromActor = !!item.actor;
+    const carriedByActor = Number(item.system?.quantity) || 1;
+    const amount = await promptQuantity({
+      title: "Add Cargo",
+      label: fromActor
+        ? `How many tons of ${item.name} (of ${carriedByActor} carried) are being moved to the hold?`
+        : `How many tons of ${item.name} are being carried?`,
+      defaultValue: fromActor ? carriedByActor : 1,
+      max: fromActor ? carriedByActor : undefined
+    });
+    if (!amount) { console.log("Traveller Trading | add cargo cancelled or zero quantity entered"); return; }
+    const finalAmount = fromActor ? Math.min(amount, carriedByActor) : amount;
     const unitValue = item.system?.cargo?.price ?? 0;
-    ship.cargo.push({ id: uid(), itemName: item.name, quantity: 1, unitValue, notes: "", sourceUuid: item.uuid });
+    const ship = getShipData(this.doc);
+    addOrMergeCargo(ship, { itemName: item.name, unitValue, img: item.img, sourceUuid: item.uuid, quantity: finalAmount });
+    await saveShipData(this.doc, ship);
+
+    if (fromActor) {
+      const remaining = carriedByActor - finalAmount;
+      if (remaining > 0) await item.update({ "system.quantity": remaining });
+      else await item.delete();
+    }
+
+    this.shipTab = "cargo";
+    this._renderContent();
+  }
+
+  // Cargo rows are draggable so they can be moved to another ship/
+  // warehouse window, or to an actor sheet — the payload doubles as a
+  // standard Foundry Item drag (so a foreign drop target like an actor
+  // sheet handles it natively) and carries our own transfer details in
+  // ttCargo (read only by _onDrop above).
+  _onCargoDragStart(event) {
+    const row = event.target.closest("[data-tt-cargo-row]");
+    if (!row) { event.preventDefault(); return; }
+    const ship = getShipData(this.doc);
+    const c = (ship.cargo || []).find(x => x.id === row.dataset.id);
+    if (!c) { console.log(`Traveller Trading | dragstart: row id ${row.dataset.id} not found in cargo`); event.preventDefault(); return; }
+    const dragId = uid();
+    row.dataset.ttDragId = dragId;
+    const payload = {
+      type: "Item",
+      uuid: c.sourceUuid,
+      ttCargo: { dragId, docId: this.docId, cargoId: c.id, quantity: Number(c.quantity) || 0, unitValue: Number(c.unitValue) || 0, itemName: c.itemName, img: c.img }
+    };
+    console.log(`Traveller Trading | dragstart: dragging ${c.quantity}t of "${c.itemName}" from "${this.doc?.name}"`, payload);
+    event.dataTransfer.setData("text/plain", JSON.stringify(payload));
+    event.dataTransfer.effectAllowed = "copyMove";
+  }
+
+  // The one direction we can't handle deterministically on drop: dropping
+  // a cargo row onto an actor sheet (or anywhere else outside our own
+  // windows) creates something there via Foundry's own native Item-drop
+  // handling, which gives us no completion callback. dragend is the only
+  // signal left, so — unless another of our own windows already claimed
+  // this drag via _onDrop above — this asks the GM to confirm how much
+  // actually left the hold, rather than guessing.
+  async _onCargoDragEnd(event) {
+    const row = event.target.closest("[data-tt-cargo-row]");
+    if (!row) return;
+    const dragId = row.dataset.ttDragId;
+    delete row.dataset.ttDragId;
+    if (!dragId) return;
+    // Yield one microtask: an internal drop's claim happens synchronously
+    // at the top of _onDrop, before it shows its own quantity dialog, and
+    // drop always fires before dragend — so the claim is already recorded
+    // by the time we check, whichever window it landed on.
+    await Promise.resolve();
+    console.log(`Traveller Trading | dragend: dropEffect="${event.dataTransfer.dropEffect}", claimed=${claimedDragIds.has(dragId)}`);
+    if (claimedDragIds.has(dragId)) return;
+    if (event.dataTransfer.dropEffect === "none") return; // dropped nowhere valid
+    if (!canEdit(this.doc)) return;
+    const ship = getShipData(this.doc);
+    const c = (ship.cargo || []).find(x => x.id === row.dataset.id);
+    if (!c) return;
+    const amount = await promptQuantity({
+      title: "Remove Cargo",
+      label: `Remove how many tons of ${c.itemName} (of ${c.quantity}) from this hold? (Cancel if nothing was actually transferred.)`,
+      defaultValue: c.quantity,
+      max: c.quantity
+    });
+    if (!amount) return;
+    removeCargoQuantity(ship, c.id, Math.min(amount, c.quantity));
     await saveShipData(this.doc, ship);
     this._renderContent();
   }
@@ -400,7 +597,13 @@ class ShipApp extends TradingWindowBase {
     const ship = getShipData(this.doc);
     ship.costs = ship.costs || { recurring: [] };
     ship.costs.recurring = ship.costs.recurring || [];
-    ship.costs.recurring.push({ id: uid(), description, amount, period, lastAppliedDay: null });
+    // lastAppliedDay starts at today, not null — processRecurring's
+    // "just-created" fallback stamps a null entry to the current day and
+    // charges nothing for that call, so if this same call is also the one
+    // that has to catch up a large time jump (nothing else runs
+    // processRecurring in between), starting from null would silently
+    // swallow the whole jump instead of charging for it.
+    ship.costs.recurring.push({ id: uid(), description, amount, period, lastAppliedDay: gameDayIndex() });
     await saveShipData(this.doc, ship);
     this._renderContent();
   }
