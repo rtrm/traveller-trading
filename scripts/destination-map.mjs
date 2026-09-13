@@ -213,6 +213,26 @@ function worldToPixel(worldX, worldY, scale) {
   return { x: mapX * scale, y: -mapY * scale };
 }
 
+// Center of `el`'s bounding box, converted into `rootSvg`'s own internal
+// coordinate system (its viewBox units) regardless of any transforms
+// between them. Dividing el's screen-space CTM by the root's own
+// screen-space CTM cancels out the CSS viewport scaling (width:100% etc.)
+// and page position that both share, leaving just the local transform
+// between the two — see the "authentic map miscalibrated" fix history
+// above _calibrateAndInjectOverlay for why this can't just use
+// el.getCTM() directly. Returns null if either element isn't laid out
+// (e.g. not yet attached to the document).
+function svgElementCenterInRoot(rootSvg, el) {
+  const bbox = el.getBBox();
+  const pt = rootSvg.createSVGPoint();
+  pt.x = bbox.x + bbox.width / 2;
+  pt.y = bbox.y + bbox.height / 2;
+  const elCTM = el.getScreenCTM();
+  const rootCTM = rootSvg.getScreenCTM();
+  if (!elCTM || !rootCTM) return null;
+  return pt.matrixTransform(rootCTM.inverse().multiply(elCTM));
+}
+
 // Flat-top hexagon path centered at (cx, cy) — vertices at 0/60/120/180/
 // 240/300 degrees give flat (horizontal) top and bottom edges, matching
 // Traveller's column-offset hex layout.
@@ -257,8 +277,8 @@ class DestinationMapApp extends TradingWindowBase {
       id: "tt-destination-map-app",
       title: "Choose Destination",
       classes: ["traveller-trading-window"],
-      width: 760,
-      height: 660,
+      width: 780,
+      height: 700,
       resizable: true
     });
   }
@@ -337,24 +357,25 @@ class DestinationMapApp extends TradingWindowBase {
       if (!match) match = texts.find(t => norm(t.textContent) === norm(originWorld.Hex));
       if (!match) throw new Error("Origin label not found in the fetched map");
 
-      const bbox = match.getBBox();
-      const pt = liveSvg.createSVGPoint();
-      pt.x = bbox.x + bbox.width / 2;
-      pt.y = bbox.y + bbox.height / 2;
-      // getCTM() maps all the way to the SVG's rendered CSS pixel viewport
-      // (e.g. ~700px wide once scaled up by "width:100%"), NOT to the
-      // fixed viewBox unit space our own worldToPixel() uses — confirmed
-      // live: an anchor of (353.7, 435.3) fell outside a "0 0 236 254"
-      // viewBox. Dividing the label's screen-space CTM by the root SVG's
-      // OWN screen-space CTM cancels that outer CSS scaling (and anything
-      // else common to both, like page position), leaving exactly the
-      // transform from the label's local space into the root's internal
-      // viewBox coordinate system.
-      const elementScreenCTM = match.getScreenCTM();
-      const rootScreenCTM = liveSvg.getScreenCTM();
-      if (!elementScreenCTM || !rootScreenCTM) throw new Error("No screen CTM available for the origin label");
-      const localCTM = rootScreenCTM.inverse().multiply(elementScreenCTM);
-      const anchor = pt.matrixTransform(localCTM); // local space -> liveSvg's own viewBox units
+      const labelPos = svgElementCenterInRoot(liveSvg, match);
+      if (!labelPos) throw new Error("No screen CTM available for the origin label");
+
+      // The label's own position is offset from its world's actual dot —
+      // travellermap.com draws the name a fixed distance below the icon,
+      // confirmed live (hotspots landing consistently on the name instead
+      // of the hex). Re-anchor on the nearest <circle> to that label
+      // instead, converting every candidate into the same root-space
+      // coordinates before comparing distances so this stays correct
+      // regardless of how travellermap.com nests its transforms.
+      let anchor = labelPos;
+      let bestDist = Infinity;
+      for (const c of liveSvg.querySelectorAll("circle")) {
+        const p = svgElementCenterInRoot(liveSvg, c);
+        if (!p) continue;
+        const d = Math.hypot(p.x - labelPos.x, p.y - labelPos.y);
+        if (d < bestDist) { bestDist = d; anchor = p; }
+      }
+      console.log(`Traveller Trading | calibrate: label at (${labelPos.x.toFixed(1)},${labelPos.y.toFixed(1)}), nearest dot at (${anchor.x.toFixed(1)},${anchor.y.toFixed(1)}), distance=${bestDist.toFixed(1)}`);
 
       const theoretical = worldToPixel(originWorld.WorldX ?? 0, originWorld.WorldY ?? 0, JUMPMAP_SCALE);
       offsetX = anchor.x - theoretical.x;

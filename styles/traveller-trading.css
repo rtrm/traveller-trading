@@ -292,8 +292,8 @@
 #tt-root .tt-berth-chip { background: var(--panel); border: 1px solid var(--border); border-radius: 10px; padding: 3px 10px; }
 #tt-root tr.tt-refunded { opacity: 0.5; text-decoration: line-through; }
 
-#tt-root .tt-map-canvas { position: relative; background: var(--panel); border: 1px solid var(--border); border-radius: 5px; padding: 8px; }
-#tt-root .tt-map-svg { width: 100%; height: auto; display: block; border-radius: 4px; }
+#tt-root .tt-map-canvas { position: relative; background: var(--panel); border: 1px solid var(--border); border-radius: 5px; padding: 8px; text-align: center; }
+#tt-root .tt-map-svg { max-width: 100%; max-height: 520px; width: auto; height: auto; display: inline-block; border-radius: 4px; }
 #tt-root .tt-map-world:not(.tt-map-origin) { cursor: pointer; }
 #tt-root .tt-map-world:not(.tt-map-origin):hover circle { r: 10; stroke: var(--gold); }
 #tt-root .tt-map-world text { pointer-events: none; font-family: "SFMono-Regular", Consolas, monospace; }
@@ -303,9 +303,14 @@
 /* Authentic map: travellermap.com's own fetched SVG as the visual layer,
    with a same-sized transparent overlay SVG on top carrying just our
    click/hover targets (see destination-map.mjs's _fetchAuthenticMap for
-   how those are calibrated against the fetched image). */
-#tt-root .tt-map-authentic { position: relative; border-radius: 4px; overflow: hidden; }
-#tt-root .tt-map-authentic > svg:not(.tt-map-overlay) { width: 100%; height: auto; display: block; }
+   how those are calibrated against the fetched image). .tt-map-authentic
+   is inline-block (not block) so it shrinks to exactly the visible map's
+   rendered size — if it stayed full-width while the height-capped map
+   centered narrower inside it, the overlay (sized to 100% of this
+   container) would stretch wider than the map and misalign every hit
+   target again. */
+#tt-root .tt-map-authentic { position: relative; display: inline-block; border-radius: 4px; overflow: hidden; vertical-align: top; }
+#tt-root .tt-map-authentic > svg:not(.tt-map-overlay) { max-width: 100%; max-height: 520px; width: auto; height: auto; display: block; }
 #tt-root .tt-map-overlay { position: absolute; inset: 0; width: 100%; height: 100%; }
 #tt-root .tt-map-hit { fill: transparent; stroke: none; pointer-events: all; }
 #tt-root .tt-map-hit:not(.tt-map-origin) { cursor: pointer; }
