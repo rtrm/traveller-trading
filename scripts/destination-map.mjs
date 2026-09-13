@@ -273,6 +273,7 @@ class DestinationMapApp extends TradingWindowBase {
     this.worlds = [];
     this.loadError = "";
     this.authentic = null; // {svgMarkup, viewBox, offsetX, offsetY} when the real travellermap.com render worked
+    this.zoom = 1;
   }
 
   static get defaultOptions() {
@@ -326,7 +327,6 @@ class DestinationMapApp extends TradingWindowBase {
       if (!svgEl || doc.querySelector("parsererror")) throw new Error("Unparseable SVG");
       const viewBox = svgEl.getAttribute("viewBox") || `0 0 ${svgEl.getAttribute("width")} ${svgEl.getAttribute("height")}`;
       this.authentic = { svgMarkup: svgEl.outerHTML, viewBox };
-      console.log(`Traveller Trading | authentic map fetched OK, viewBox="${viewBox}", markup length=${svgEl.outerHTML.length}`);
     } catch (err) {
       console.warn("Traveller Trading | Couldn't render travellermap.com's own jump map, using the built-in fallback map instead", err);
       this.authentic = null;
@@ -348,14 +348,12 @@ class DestinationMapApp extends TradingWindowBase {
     const container = this.root.querySelector(".tt-map-authentic");
     const liveSvg = container?.querySelector("svg");
     const originWorld = this.worlds.find(w => w.Hex === this.originHex && w.Sector === this.originSector);
-    console.log("Traveller Trading | calibrate: container=%o liveSvg=%o originWorld=%o", !!container, !!liveSvg, originWorld);
-    if (!container || !liveSvg || !originWorld) { console.log("Traveller Trading | calibrate: aborting, missing container/liveSvg/originWorld"); return; }
+    if (!container || !liveSvg || !originWorld) return;
 
     let offsetX, offsetY;
     try {
       const norm = s => (s || "").trim().toLowerCase();
       const texts = Array.from(liveSvg.querySelectorAll("text"));
-      console.log(`Traveller Trading | calibrate: ${texts.length} <text> elements found, looking for "${originWorld.Name}" / "${originWorld.Hex}"`);
       let match = texts.find(t => norm(t.textContent) === norm(originWorld.Name));
       if (!match) match = texts.find(t => norm(t.textContent) === norm(originWorld.Hex));
       if (!match) throw new Error("Origin label not found in the fetched map");
@@ -378,12 +376,10 @@ class DestinationMapApp extends TradingWindowBase {
         const d = Math.hypot(p.x - labelPos.x, p.y - labelPos.y);
         if (d < bestDist) { bestDist = d; anchor = p; }
       }
-      console.log(`Traveller Trading | calibrate: label at (${labelPos.x.toFixed(1)},${labelPos.y.toFixed(1)}), nearest dot at (${anchor.x.toFixed(1)},${anchor.y.toFixed(1)}), distance=${bestDist.toFixed(1)}`);
 
       const theoretical = worldToPixel(originWorld.WorldX ?? 0, originWorld.WorldY ?? 0, JUMPMAP_SCALE);
       offsetX = anchor.x - theoretical.x;
       offsetY = anchor.y - theoretical.y;
-      console.log(`Traveller Trading | calibrate: matched "${match.textContent}", anchor=(${anchor.x.toFixed(1)},${anchor.y.toFixed(1)}) theoretical=(${theoretical.x.toFixed(1)},${theoretical.y.toFixed(1)}) offset=(${offsetX.toFixed(1)},${offsetY.toFixed(1)})`);
     } catch (err) {
       // Fall back to assuming the origin sits at the image's center —
       // travellermap.com's likely (but unconfirmed) convention for a jump
@@ -416,8 +412,6 @@ class DestinationMapApp extends TradingWindowBase {
     // plain string insertion, which every other rendered element in this
     // module already relies on successfully.
     container.insertAdjacentHTML("beforeend", `<svg class="tt-map-overlay" viewBox="${this.authentic.viewBox}" data-tt-map-svg>${hits}</svg>`);
-    const injected = container.querySelector(".tt-map-overlay");
-    console.log(`Traveller Trading | calibrate: overlay injected=${!!injected}, hit circles=${injected?.querySelectorAll("[data-tt-map-world]").length ?? 0}`);
     this._wireMapInteractions();
   }
 
@@ -430,25 +424,46 @@ class DestinationMapApp extends TradingWindowBase {
         this._renderContent();
       }
     });
+    // Scaling the shared zoom wrapper directly (no re-render) keeps this
+    // smooth and, for the authentic map, keeps the invisible click overlay
+    // pixel-perfectly aligned with the real map underneath — both are
+    // descendants of the same wrapper, so one CSS transform scales them
+    // together instead of needing to recompute either one's coordinates.
+    this.root.addEventListener("wheel", (e) => {
+      const canvas = this.root.querySelector(".tt-map-canvas");
+      const zoomEl = this.root.querySelector("[data-tt-map-zoom]");
+      if (!canvas || !zoomEl || !canvas.contains(e.target)) return;
+      e.preventDefault();
+      this.zoom = Math.max(0.5, Math.min(3, this.zoom + (e.deltaY < 0 ? 0.15 : -0.15)));
+      zoomEl.style.transform = `scale(${this.zoom})`;
+    }, { passive: false });
   }
 
   _renderContent() {
     const worlds = this.worlds;
-    let bodyHtml;
+    const hasMap = !this.loadError && worlds.length > 0;
+    let mapHtml;
 
     if (this.loadError) {
-      bodyHtml = `<p class="tt-empty">${esc(this.loadError)}</p>`;
+      mapHtml = `<p class="tt-empty">${esc(this.loadError)}</p>`;
     } else if (!worlds.length) {
-      bodyHtml = `<p class="tt-empty">No worlds found within range.</p>`;
+      mapHtml = `<p class="tt-empty">No worlds found within range.</p>`;
     } else if (this.authentic) {
-      bodyHtml = this._authenticMapHtml();
+      mapHtml = this._authenticMapHtml();
     } else {
-      bodyHtml = this._fallbackMapHtml();
+      mapHtml = this._fallbackMapHtml();
     }
+    // The tooltip lives outside the zoom wrapper so it never scales with
+    // the map; only the map content itself (and, for the authentic path,
+    // the overlay appended into it below) does.
+    const bodyHtml = hasMap
+      ? `<div class="tt-map-zoom" data-tt-map-zoom style="transform: scale(${this.zoom});">${mapHtml}</div>
+         <div class="tt-map-tooltip" data-tt-map-tooltip hidden></div>`
+      : mapHtml;
 
     this.root.innerHTML = `
       <div class="tt-destmap">
-        <p class="tt-hint">Worlds within jump range of ${esc(this.originSector)} ${esc(this.originHex)}. Hover a system for its UWP and trade codes; click one to set it as the destination.</p>
+        <p class="tt-hint">Worlds within jump range of ${esc(this.originSector)} ${esc(this.originHex)}. Hover a system for its UWP and trade codes; click one to set it as the destination. Scroll to zoom.</p>
         <div class="tt-inline-row" style="margin-bottom:10px;">
           <label style="font-size:12.5px;color:var(--text-muted);">Jump range</label>
           <input type="number" data-tt-jump-range min="0" max="6" value="${this.jump}" class="tt-input" style="width:60px;">
@@ -478,8 +493,7 @@ class DestinationMapApp extends TradingWindowBase {
   // it afterward via _calibrateAndInjectOverlay().
   _authenticMapHtml() {
     return `
-      <div class="tt-map-authentic">${this.authentic.svgMarkup}</div>
-      <div class="tt-map-tooltip" data-tt-map-tooltip hidden></div>`;
+      <div class="tt-map-authentic">${this.authentic.svgMarkup}</div>`;
   }
 
   // Fully self-contained rendering used whenever the authentic map above
@@ -528,8 +542,7 @@ class DestinationMapApp extends TradingWindowBase {
            style="background:${style.bg};">
         <g>${gridCells.join("")}</g>
         <g>${dots}</g>
-      </svg>
-      <div class="tt-map-tooltip" data-tt-map-tooltip hidden></div>`;
+      </svg>`;
   }
 
   _wireMapInteractions() {
@@ -537,11 +550,9 @@ class DestinationMapApp extends TradingWindowBase {
     const tooltip = this.root.querySelector("[data-tt-map-tooltip]");
     const canvas = this.root.querySelector(".tt-map-canvas");
     const targets = svg ? svg.querySelectorAll("[data-tt-map-world]") : [];
-    console.log(`Traveller Trading | wireMapInteractions: svg=${!!svg} tooltip=${!!tooltip} canvas=${!!canvas} targets=${targets.length}`);
     if (!svg || !tooltip) return;
     targets.forEach(g => {
       g.addEventListener("mouseenter", () => {
-        console.log(`Traveller Trading | hover: ${g.dataset.name}`);
         tooltip.innerHTML = `
           <b>${esc(g.dataset.name)}</b><br>
           ${esc(g.dataset.sector)} ${esc(g.dataset.hex)}<br>
@@ -557,7 +568,6 @@ class DestinationMapApp extends TradingWindowBase {
       g.addEventListener("mouseleave", () => { tooltip.hidden = true; });
       if (!g.classList.contains("tt-map-origin")) {
         g.addEventListener("click", () => {
-          console.log(`Traveller Trading | click: ${g.dataset.name}`);
           this.onPick({ sector: g.dataset.sector, hex: g.dataset.hex, name: g.dataset.name });
           this.close();
         });
