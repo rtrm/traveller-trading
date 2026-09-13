@@ -251,22 +251,25 @@ let instance = null;
 // invoked with {sector, hex, name} when a system is clicked; the caller
 // decides what to do with it (normally: save it as the ship's
 // destination) — this module only renders the map and reports the click.
-export function openDestinationMapApp({ docId, originSector, originHex, onPick }) {
+export function openDestinationMapApp({ docId, originSector, originHex, initialJump, onPick }) {
   if (instance && instance.rendered && instance.docId === docId) { instance.bringToTop(); return instance; }
   if (instance) instance.close();
-  instance = new DestinationMapApp({ docId, originSector, originHex, onPick });
+  instance = new DestinationMapApp({ docId, originSector, originHex, initialJump, onPick });
   instance.render(true);
   return instance;
 }
 
 class DestinationMapApp extends TradingWindowBase {
-  constructor({ docId, originSector, originHex, onPick }, options) {
+  constructor({ docId, originSector, originHex, initialJump, onPick }, options) {
     super(options);
     this.docId = docId;
     this.originSector = originSector;
     this.originHex = originHex;
     this.onPick = onPick;
-    this.jump = 2;
+    // Seeded from the ship's own Jump Rating, but freely changeable here —
+    // this only sets the map's starting range, it's never written back.
+    const seed = Number(initialJump);
+    this.jump = Math.max(0, Math.min(6, Number.isFinite(seed) ? seed : 2));
     this.worlds = [];
     this.loadError = "";
     this.authentic = null; // {svgMarkup, viewBox, offsetX, offsetY} when the real travellermap.com render worked
@@ -278,7 +281,7 @@ class DestinationMapApp extends TradingWindowBase {
       title: "Choose Destination",
       classes: ["traveller-trading-window"],
       width: 780,
-      height: 700,
+      height: "auto",
       resizable: true
     });
   }
@@ -453,12 +456,20 @@ class DestinationMapApp extends TradingWindowBase {
         <div class="tt-map-canvas">${bodyHtml}</div>
       </div>`;
 
-    if (this.loadError || !worlds.length) return;
-    // The authentic map's markup is now live in the DOM (needed for the
-    // getBBox()/getCTM() calibration below); the fallback map already has
-    // everything it needs and just wires up its existing SVG directly.
-    if (this.authentic) this._calibrateAndInjectOverlay();
-    else this._wireMapInteractions();
+    if (!this.loadError && worlds.length) {
+      // The authentic map's markup is now live in the DOM (needed for the
+      // getBBox()/getCTM() calibration below); the fallback map already
+      // has everything it needs and just wires up its existing SVG
+      // directly.
+      if (this.authentic) this._calibrateAndInjectOverlay();
+      else this._wireMapInteractions();
+    }
+    // The window's own "auto" height is only computed once, at first
+    // render — re-request it here too, since every jump-range change (and
+    // the map's own capped max-height) changes how tall the content
+    // actually is, and a stale fixed height otherwise leaves the window
+    // either clipping the map or towering over it with empty space.
+    this.setPosition({ height: "auto" });
   }
 
   // Renders travellermap.com's own SVG as the visual background. The

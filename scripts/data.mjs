@@ -122,6 +122,7 @@ export async function createShipDoc(name, isStorage) {
     ? { name, cargo: [], cargoNotes: "", costs: { recurring: [] } }
     : {
         name, type: "", armed: false,
+        jumpRating: 2,
         location: "", destination: "",
         cargoSpace: 0,
         berths: { high: 0, middle: 0, basic: 0, low: 0 },

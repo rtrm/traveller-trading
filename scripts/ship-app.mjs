@@ -186,6 +186,7 @@ class ShipApp extends TradingWindowBase {
         <div class="tt-field"><label>Name</label><input type="text" ${dis} data-tt-field="ship.name" value="${esc(ship.name)}"></div>
         <div class="tt-field"><label>Type</label><input type="text" ${dis} data-tt-field="ship.type" value="${esc(ship.type)}" placeholder="e.g. Far Trader"></div>
         <div class="tt-field tt-field-checkbox"><label><input type="checkbox" ${dis} data-tt-field="ship.armed" ${ship.armed ? "checked" : ""}> Armed</label></div>
+        <div class="tt-field"><label>Jump Rating</label><input type="number" ${dis} data-tt-numeric="true" data-tt-field="ship.jumpRating" min="0" max="6" value="${ship.jumpRating ?? 2}"></div>
         <div class="tt-field"><label>Current Location</label><input type="text" ${dis} data-tt-field="ship.location" value="${esc(ship.location || "")}" placeholder="e.g. Drinax"></div>
         <div class="tt-field"><label>Destination</label><input type="text" ${dis} data-tt-field="ship.destination" value="${esc(ship.destination || "")}" placeholder="e.g. Overnale"></div>
         ${editable ? `
@@ -241,6 +242,7 @@ class ShipApp extends TradingWindowBase {
       docId: this.docId,
       originSector: origin.sector,
       originHex: origin.hex,
+      initialJump: ship.jumpRating ?? 2,
       onPick: async ({ sector, hex, name }) => {
         const freshShip = getShipData(this.doc);
         freshShip.destination = `${name} (${sector} ${hex})`;
