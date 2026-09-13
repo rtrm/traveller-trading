@@ -6,6 +6,7 @@ import {
 import { PASSENGER_CATEGORIES, passengerCategoryInfo, passengerIncome, RECURRING_COST_PERIODS } from "./constants.mjs";
 import { TradingWindowBase, customSelectHtml, esc, fmtCr } from "./window-base.mjs";
 import { resolveLocation, openDestinationMapApp } from "./destination-map.mjs";
+import { generatePassengers } from "./passenger-gen.mjs";
 
 const RANK = { low: 0, basic: 1, middle: 2, high: 3 };
 const instances = new Map(); // docId -> ShipApp
@@ -206,6 +207,7 @@ class ShipApp extends TradingWindowBase {
         <div class="tt-inline-row">
           <div class="tt-field"><label>Steward</label><input type="number" ${dis} data-tt-numeric="true" data-tt-field="ship.skills.steward" value="${ship.skills?.steward || 0}"></div>
           <div class="tt-field"><label>Broker</label><input type="number" ${dis} data-tt-numeric="true" data-tt-field="ship.skills.broker" value="${ship.skills?.broker || 0}"></div>
+          <div class="tt-field"><label>Carouse</label><input type="number" ${dis} data-tt-numeric="true" data-tt-field="ship.skills.carouse" value="${ship.skills?.carouse || 0}"></div>
           <div class="tt-field"><label>Streetwise</label><input type="number" ${dis} data-tt-numeric="true" data-tt-field="ship.skills.streetwise" value="${ship.skills?.streetwise || 0}"></div>
           <div class="tt-field"><label>Admin</label><input type="number" ${dis} data-tt-numeric="true" data-tt-field="ship.skills.admin" value="${ship.skills?.admin || 0}"></div>
         </div>
@@ -489,6 +491,11 @@ class ShipApp extends TradingWindowBase {
         <div class="tt-berth-summary">${berthSummary}</div>
         ${editable ? `
         <div class="tt-panel-box">
+          <h3>Trade Passengers</h3>
+          <p class="tt-hint">Rolls 2D6 per category (High/Middle/Basic/Low) using the ship's Steward skill, the current location's and destination's UWP/zone, distance, and the best of Broker/Carouse/Streetwise — same as picking a destination, based on Current Location and Destination on the Configuration tab.</p>
+          <button type="button" class="tt-btn" data-tt-action="generate-passengers">Generate Passengers</button>
+        </div>
+        <div class="tt-panel-box">
           <h3>Add Passenger</h3>
           <div class="tt-inline-row">
             <input type="text" id="tt-pass-name" class="tt-input" placeholder="Name">
@@ -500,7 +507,7 @@ class ShipApp extends TradingWindowBase {
           </div>
         </div>` : ""}
         <table class="tt-table">
-          <thead><tr><th>Name</th><th>Description</th><th>Category</th><th>Income</th><th>Destination</th><th></th></tr></thead>
+          <thead><tr><th>Name</th><th>Notes</th><th>Category</th><th>Income</th><th>Destination</th><th></th></tr></thead>
           <tbody>
             ${passengers.map(p => this._passengerRowHtml(p, editable)).join("") || `<tr><td colspan="6" class="tt-empty">No passengers yet.</td></tr>`}
           </tbody>
@@ -544,6 +551,146 @@ class ShipApp extends TradingWindowBase {
     } else {
       ui.notifications.info("The Traveller Name Generator module isn't active — enter a name manually.");
     }
+  }
+
+  // Resolves the ship's Current Location and Destination (same lookup as
+  // "Choose on Map"), rolls all four passenger categories for that trip,
+  // then lets the GM choose how many of each to actually board before
+  // creating the records and posting one combined payment.
+  async _action_generate_passengers() {
+    if (!canEdit(this.doc)) { ui.notifications.warn("You don't have permission to edit this."); return; }
+    const ship = getShipData(this.doc);
+    if (!(ship.location || "").trim()) { ui.notifications.warn("Set a Current Location first."); return; }
+    if (!(ship.destination || "").trim()) { ui.notifications.warn("Set a Destination first."); return; }
+
+    const originCandidates = await resolveLocation(ship.location);
+    if (!originCandidates.length) { ui.notifications.warn(`Couldn't find "${ship.location}" on Traveller Map.`); return; }
+    let origin = originCandidates[0];
+    if (originCandidates.length > 1) {
+      origin = await this._pickLocationCandidate(originCandidates);
+      if (!origin) return;
+    }
+
+    const destCandidates = await resolveLocation(ship.destination);
+    if (!destCandidates.length) { ui.notifications.warn(`Couldn't find "${ship.destination}" on Traveller Map.`); return; }
+    let destination = destCandidates[0];
+    if (destCandidates.length > 1) {
+      destination = await this._pickLocationCandidate(destCandidates);
+      if (!destination) return;
+    }
+
+    let generation;
+    try {
+      generation = await generatePassengers({
+        skills: ship.skills,
+        originSector: origin.sector, originHex: origin.hex,
+        destSector: destination.sector, destHex: destination.hex
+      });
+    } catch (err) {
+      ui.notifications.warn(err.message || "Couldn't generate passengers.");
+      return;
+    }
+
+    const taken = await this._showPassengerGenerationResults(generation);
+    if (!taken) return;
+
+    const { origin: originWorld, destination: destWorld, distanceParsecs } = generation;
+    const freshShip = getShipData(this.doc);
+    freshShip.passengers = freshShip.passengers || [];
+    let totalIncome = 0;
+    const parts = [];
+    for (const category of ["high", "middle", "basic", "low"]) {
+      const count = taken[category] || 0;
+      if (!count) continue;
+      const fare = passengerIncome(distanceParsecs, category);
+      const catInfo = passengerCategoryInfo(category);
+      for (let i = 0; i < count; i++) {
+        freshShip.passengers.push({
+          id: uid(),
+          name: this._generatedPassengerName(category),
+          description: catInfo.label,
+          category,
+          parsecs: distanceParsecs,
+          destination: destWorld.Name || "",
+          income: fare,
+          refunded: false,
+          realTime: new Date().toISOString(),
+          gameDate: getCampaignDate()
+        });
+      }
+      totalIncome += fare * count;
+      parts.push(`${count} ${catInfo.label}`);
+    }
+    if (!parts.length) return; // nothing taken, nothing to save or pay
+
+    await saveShipData(this.doc, freshShip);
+    const financeDoc = await getFinanceDoc();
+    await postTransaction(financeDoc, {
+      amount: totalIncome,
+      description: `${freshShip.name}: Passengers boarded (${parts.join(", ")}) - ${originWorld.Name} to ${destWorld.Name}`,
+      source: `ship:${this.docId}`
+    });
+    this._renderContent();
+  }
+
+  _generatedPassengerName(category) {
+    const nameGen = game.modules.get("traveller-name-generator");
+    if (nameGen?.active && typeof nameGen.api?.generateName === "function") {
+      try { return nameGen.api.generateName(); } catch (err) { /* fall through to the generic label below */ }
+    }
+    return passengerCategoryInfo(category).label;
+  }
+
+  // Shows the roll results per category and lets the GM pick how many of
+  // each to actually take aboard (capped at what was generated) before
+  // resolving with those counts, or null if cancelled.
+  _showPassengerGenerationResults(generation) {
+    const { origin, destination, distanceParsecs, results } = generation;
+    return new Promise(resolve => {
+      const rows = PASSENGER_CATEGORIES.map(c => {
+        const r = results[c.id];
+        const fare = passengerIncome(distanceParsecs, c.id);
+        return `
+          <tr>
+            <td><span class="tt-badge" style="color:${c.color}">${c.label}</span></td>
+            <td class="tt-mono">${r.roll} (${r.diceCount}D6)</td>
+            <td class="tt-mono">${r.count}</td>
+            <td class="tt-mono">${fmtCr(fare)}</td>
+            <td><input type="number" class="tt-cell-input" data-tt-take="${c.id}" min="0" max="${r.count}" value="${r.count}" style="width:60px;"></td>
+          </tr>`;
+      }).join("");
+      const content = `
+        <div id="tt-root">
+          <p class="tt-hint">${esc(origin.Name || "")} &rarr; ${esc(destination.Name || "")}, ${distanceParsecs} parsec${distanceParsecs === 1 ? "" : "s"}.</p>
+          <table class="tt-table">
+            <thead><tr><th>Category</th><th>Roll</th><th>Generated</th><th>Fare</th><th>Take</th></tr></thead>
+            <tbody>${rows}</tbody>
+          </table>
+        </div>`;
+      const dlg = new Dialog({
+        title: "Generate Passengers",
+        content,
+        buttons: {
+          confirm: {
+            label: "Board Selected Passengers",
+            callback: (html) => {
+              const root = html[0];
+              const taken = {};
+              for (const c of PASSENGER_CATEGORIES) {
+                const input = root.querySelector(`[data-tt-take="${c.id}"]`);
+                const max = results[c.id].count;
+                taken[c.id] = Math.max(0, Math.min(max, Number(input?.value) || 0));
+              }
+              resolve(taken);
+            }
+          },
+          cancel: { label: "Cancel", callback: () => resolve(null) }
+        },
+        default: "confirm",
+        close: () => resolve(null)
+      });
+      dlg.render(true);
+    });
   }
 
   async _action_add_passenger() {

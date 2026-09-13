@@ -126,7 +126,7 @@ export async function createShipDoc(name, isStorage) {
         location: "", destination: "",
         cargoSpace: 0,
         berths: { high: 0, middle: 0, basic: 0, low: 0 },
-        skills: { steward: 0, broker: 0, streetwise: 0, admin: 0 },
+        skills: { steward: 0, broker: 0, carouse: 0, streetwise: 0, admin: 0 },
         cargo: [], cargoNotes: "",
         passengers: [],
         costs: { recurring: [] }

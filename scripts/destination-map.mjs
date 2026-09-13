@@ -165,7 +165,7 @@ export async function resolveLocation(text) {
   }
 }
 
-async function fetchJumpWorlds(sector, hex, jump) {
+export async function fetchJumpWorlds(sector, hex, jump) {
   const res = await fetch(`https://travellermap.com/api/jumpworlds?sector=${encodeURIComponent(sector)}&hex=${encodeURIComponent(hex)}&jump=${jump}&milieu=${encodeURIComponent(currentMilieu())}`);
   if (!res.ok) throw new Error(`Traveller Map returned ${res.status}`);
   const json = await res.json();
