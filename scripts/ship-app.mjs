@@ -127,10 +127,7 @@ class ShipApp extends TradingWindowBase {
 
   activateListeners(html) {
     super.activateListeners(html);
-    this.root.addEventListener("dragenter", (e) => {
-      console.log(`Traveller Trading | dragenter on "${this.doc?.name}"`);
-      e.preventDefault();
-    });
+    this.root.addEventListener("dragenter", (e) => e.preventDefault());
     this.root.addEventListener("dragover", (e) => e.preventDefault());
     this.root.addEventListener("drop", (e) => this._onDrop(e));
     this.root.addEventListener("dragstart", (e) => this._onCargoDragStart(e));
@@ -188,6 +185,9 @@ class ShipApp extends TradingWindowBase {
         <div class="tt-field"><label>Name</label><input type="text" ${dis} data-tt-field="ship.name" value="${esc(ship.name)}"></div>
         <div class="tt-field"><label>Type</label><input type="text" ${dis} data-tt-field="ship.type" value="${esc(ship.type)}" placeholder="e.g. Far Trader"></div>
         <div class="tt-field tt-field-checkbox"><label><input type="checkbox" ${dis} data-tt-field="ship.armed" ${ship.armed ? "checked" : ""}> Armed</label></div>
+        <div class="tt-field"><label>Current Location</label><input type="text" ${dis} data-tt-field="ship.location" value="${esc(ship.location || "")}" placeholder="e.g. Drinax"></div>
+        <div class="tt-field"><label>Destination</label><input type="text" ${dis} data-tt-field="ship.destination" value="${esc(ship.destination || "")}" placeholder="e.g. Overnale"></div>
+        ${editable ? `<button type="button" class="tt-btn tt-btn-ghost" data-tt-action="arrive" ${ship.destination ? "" : "disabled"} style="margin-bottom:16px;">Arrived at Destination</button>` : ""}
         <div class="tt-field"><label>Total Cargo Space (tons)</label><input type="number" ${dis} data-tt-numeric="true" data-tt-field="ship.cargoSpace" value="${ship.cargoSpace || 0}"></div>
         <h4>Berths</h4>
         <div class="tt-inline-row">
@@ -205,6 +205,16 @@ class ShipApp extends TradingWindowBase {
         </div>
         ${game.user.isGM ? `<button type="button" class="tt-btn tt-btn-ghost" style="margin-top:16px;" data-tt-action="delete-ship">Delete this ${isStorageKind(doc) ? "storage location" : "starship"}</button>` : ""}
       </div>`;
+  }
+
+  async _action_arrive() {
+    if (!canEdit(this.doc)) { ui.notifications.warn("You don't have permission to edit this."); return; }
+    const ship = getShipData(this.doc);
+    if (!ship.destination) return;
+    ship.location = ship.destination;
+    ship.destination = "";
+    await saveShipData(this.doc, ship);
+    this._renderContent();
   }
 
   async _action_delete_ship() {
@@ -256,19 +266,10 @@ class ShipApp extends TradingWindowBase {
   // and the view switches to the Cargo tab to show the result.
   async _onDrop(event) {
     event.preventDefault();
-    console.log(`Traveller Trading | drop received on "${this.doc?.name}" (${this.docId})`);
     let data;
-    try { data = JSON.parse(event.dataTransfer.getData("text/plain")); } catch (err) {
-      console.log("Traveller Trading | drop ignored: payload wasn't JSON", err);
-      return;
-    }
-    console.log("Traveller Trading | drop payload", data);
-    if (!data?.uuid || data.type !== "Item") { console.log("Traveller Trading | drop ignored: not an Item-shaped payload"); return; }
-    if (!canEdit(this.doc)) {
-      console.log(`Traveller Trading | drop blocked: no edit permission on "${this.doc?.name}"`);
-      ui.notifications.warn("You don't have permission to add cargo here.");
-      return;
-    }
+    try { data = JSON.parse(event.dataTransfer.getData("text/plain")); } catch (err) { return; }
+    if (!data?.uuid || data.type !== "Item") return;
+    if (!canEdit(this.doc)) { ui.notifications.warn("You don't have permission to add cargo here."); return; }
 
     if (data.ttCargo) {
       // One of our own cargo rows, dragged from another (or this) ship/
@@ -276,9 +277,9 @@ class ShipApp extends TradingWindowBase {
       // dragging window's dragend handler knows not to also treat this as
       // a drop it doesn't control.
       claimDrag(data.ttCargo.dragId);
-      if (data.ttCargo.docId === this.docId) { console.log("Traveller Trading | drop ignored: dropped back on its own hold"); return; }
+      if (data.ttCargo.docId === this.docId) return; // dropped back on its own hold
       const sourceDoc = game.journal.get(data.ttCargo.docId);
-      if (!sourceDoc) { console.log(`Traveller Trading | drop ignored: source doc ${data.ttCargo.docId} not found`); return; }
+      if (!sourceDoc) return;
       const available = Number(data.ttCargo.quantity) || 0;
       const amount = await promptQuantity({
         title: "Move Cargo",
@@ -286,7 +287,7 @@ class ShipApp extends TradingWindowBase {
         defaultValue: available,
         max: available
       });
-      if (!amount) { console.log("Traveller Trading | move cancelled or zero quantity entered"); return; }
+      if (!amount) return;
       const moved = Math.min(amount, available);
       const sourceShip = getShipData(sourceDoc);
       removeCargoQuantity(sourceShip, data.ttCargo.cargoId, moved);
@@ -303,7 +304,7 @@ class ShipApp extends TradingWindowBase {
     // own inventory (in which case this is also a move: the carried amount
     // is removed from the actor once added here).
     const item = await fromUuid(data.uuid);
-    if (!item) { console.log(`Traveller Trading | drop ignored: fromUuid("${data.uuid}") resolved to nothing`); return; }
+    if (!item) return;
     const fromActor = !!item.actor;
     const carriedByActor = Number(item.system?.quantity) || 1;
     const amount = await promptQuantity({
@@ -314,7 +315,7 @@ class ShipApp extends TradingWindowBase {
       defaultValue: fromActor ? carriedByActor : 1,
       max: fromActor ? carriedByActor : undefined
     });
-    if (!amount) { console.log("Traveller Trading | add cargo cancelled or zero quantity entered"); return; }
+    if (!amount) return;
     const finalAmount = fromActor ? Math.min(amount, carriedByActor) : amount;
     const unitValue = item.system?.cargo?.price ?? 0;
     const ship = getShipData(this.doc);
@@ -341,7 +342,7 @@ class ShipApp extends TradingWindowBase {
     if (!row) { event.preventDefault(); return; }
     const ship = getShipData(this.doc);
     const c = (ship.cargo || []).find(x => x.id === row.dataset.id);
-    if (!c) { console.log(`Traveller Trading | dragstart: row id ${row.dataset.id} not found in cargo`); event.preventDefault(); return; }
+    if (!c) { event.preventDefault(); return; }
     const dragId = uid();
     row.dataset.ttDragId = dragId;
     const payload = {
@@ -349,7 +350,6 @@ class ShipApp extends TradingWindowBase {
       uuid: c.sourceUuid,
       ttCargo: { dragId, docId: this.docId, cargoId: c.id, quantity: Number(c.quantity) || 0, unitValue: Number(c.unitValue) || 0, itemName: c.itemName, img: c.img }
     };
-    console.log(`Traveller Trading | dragstart: dragging ${c.quantity}t of "${c.itemName}" from "${this.doc?.name}"`, payload);
     event.dataTransfer.setData("text/plain", JSON.stringify(payload));
     event.dataTransfer.effectAllowed = "copyMove";
   }
@@ -372,7 +372,6 @@ class ShipApp extends TradingWindowBase {
     // drop always fires before dragend — so the claim is already recorded
     // by the time we check, whichever window it landed on.
     await Promise.resolve();
-    console.log(`Traveller Trading | dragend: dropEffect="${event.dataTransfer.dropEffect}", claimed=${claimedDragIds.has(dragId)}`);
     if (claimedDragIds.has(dragId)) return;
     if (event.dataTransfer.dropEffect === "none") return; // dropped nowhere valid
     if (!canEdit(this.doc)) return;
