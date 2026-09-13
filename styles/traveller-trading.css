@@ -305,7 +305,7 @@
    click/hover targets (see destination-map.mjs's _fetchAuthenticMap for
    how those are calibrated against the fetched image). */
 #tt-root .tt-map-authentic { position: relative; border-radius: 4px; overflow: hidden; }
-#tt-root .tt-map-authentic svg { width: 100%; height: auto; display: block; }
+#tt-root .tt-map-authentic > svg:not(.tt-map-overlay) { width: 100%; height: auto; display: block; }
 #tt-root .tt-map-overlay { position: absolute; inset: 0; width: 100%; height: 100%; }
 #tt-root .tt-map-hit { fill: transparent; stroke: none; }
 #tt-root .tt-map-hit:not(.tt-map-origin) { cursor: pointer; }

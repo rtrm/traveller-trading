@@ -398,8 +398,10 @@ class DestinationMapApp extends TradingWindowBase {
           cx="${cx.toFixed(1)}" cy="${cy.toFixed(1)}" r="${(JUMPMAP_SCALE * 0.4).toFixed(1)}"></circle>`;
     }).join("");
     return `
-      <div class="tt-map-authentic">${svgMarkup}</div>
-      <svg class="tt-map-overlay" viewBox="${viewBox}" data-tt-map-svg>${hits}</svg>
+      <div class="tt-map-authentic">
+        ${svgMarkup}
+        <svg class="tt-map-overlay" viewBox="${viewBox}" data-tt-map-svg>${hits}</svg>
+      </div>
       <div class="tt-map-tooltip" data-tt-map-tooltip hidden></div>`;
   }
 
