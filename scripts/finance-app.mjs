@@ -4,6 +4,30 @@ import {
   getCampaignDate, gameDayIndex, formatGameDate, dayIndexToGameDate, getShipDocs, getShipData
 } from "./data.mjs";
 import { TradingWindowBase, customSelectHtml, bindCustomSelects, esc, fmtCr } from "./window-base.mjs";
+import { getTransactionLogUrl } from "./logging.mjs";
+
+const DEFAULT_TRANSACTION_LIMIT = 25;
+
+export function registerFinanceSettings() {
+  game.settings.register(MODULE_ID, "transactionDisplayLimit", {
+    name: "Transactions Shown in Group Finance",
+    hint: "How many of the most recent transactions to list on the Group Finance screen. The full history is always kept in the transaction log text file (Open Transaction Log button), regardless of this limit.",
+    scope: "world",
+    config: true,
+    type: Number,
+    default: DEFAULT_TRANSACTION_LIMIT,
+    range: { min: 5, max: 500, step: 5 }
+  });
+}
+
+function transactionDisplayLimit() {
+  try {
+    const n = Number(game.settings.get(MODULE_ID, "transactionDisplayLimit"));
+    return Number.isFinite(n) && n > 0 ? n : DEFAULT_TRANSACTION_LIMIT;
+  } catch (err) {
+    return DEFAULT_TRANSACTION_LIMIT;
+  }
+}
 
 let instance = null;
 
@@ -144,7 +168,9 @@ class GroupFinanceApp extends TradingWindowBase {
     if (!this.doc) { this.root.innerHTML = `<p class="tt-empty">Group Finance hasn't been set up yet.</p>`; return; }
     const data = getFinanceData(this.doc);
     const editable = canEdit(this.doc);
-    const transactions = (data.transactions || []).slice(0, 200);
+    const limit = transactionDisplayLimit();
+    const allTransactions = data.transactions || [];
+    const transactions = allTransactions.slice(0, limit);
     const recurringRows = this._recurringRows(data);
 
     this.root.innerHTML = `
@@ -165,10 +191,19 @@ class GroupFinanceApp extends TradingWindowBase {
         </div>
 
         <div class="tt-fin-section">
-          <h3>Transactions</h3>
+          <div class="tt-inline-row" style="justify-content:space-between;">
+            <h3 style="margin:0;">Transactions${allTransactions.length > limit ? ` <span class="tt-source-name">(showing latest ${limit} of ${allTransactions.length})</span>` : ""}</h3>
+            ${game.user.isGM ? `<button type="button" class="tt-btn tt-btn-ghost" data-tt-action="open-transaction-log">Open Transaction Log</button>` : ""}
+          </div>
           ${this._transactionsTableHtml(transactions)}
         </div>
       </div>`;
+  }
+
+  async _action_open_transaction_log() {
+    const url = await getTransactionLogUrl();
+    if (!url) { ui.notifications.warn("No transaction log file yet — it's created the first time a transaction is posted."); return; }
+    window.open(url, "_blank");
   }
 
   // ---- Add Transaction dialog --------------------------------------------

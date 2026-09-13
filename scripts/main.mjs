@@ -4,7 +4,7 @@ import { registerPermissionsSettings } from "./permissions.mjs";
 import { registerTransactionLog } from "./logging.mjs";
 import { LauncherController } from "./panel.mjs";
 import { getFinanceDoc, processRecurring } from "./data.mjs";
-import { refreshGroupFinanceApp } from "./finance-app.mjs";
+import { refreshGroupFinanceApp, registerFinanceSettings } from "./finance-app.mjs";
 import { refreshShipApp, closeShipAppIfOpen } from "./ship-app.mjs";
 import { registerDestinationMapSettings, registerPreferredSectorChoices } from "./destination-map.mjs";
 
@@ -12,6 +12,7 @@ Hooks.once("init", () => {
   registerTradeGoodsSettings();
   registerPermissionsSettings();
   registerDestinationMapSettings();
+  registerFinanceSettings();
 });
 
 Hooks.once("ready", () => {

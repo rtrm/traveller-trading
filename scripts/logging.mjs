@@ -102,3 +102,12 @@ export function registerTransactionLog() {
 export function transactionLogPath() {
   return LOG_PATH;
 }
+
+// Resolves the actual fetchable/browsable URL for the log file (which, on
+// Forge, is a full CDN URL rather than the "data"-source relative path
+// above) so the Group Finance window can link straight to it. Returns null
+// if the file hasn't been created yet (e.g. no transaction has ever been
+// posted, or this client hasn't browsed the folder this session).
+export async function getTransactionLogUrl() {
+  return findExistingFileUrl();
+}
