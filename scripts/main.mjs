@@ -6,10 +6,12 @@ import { LauncherController } from "./panel.mjs";
 import { getFinanceDoc, processRecurring } from "./data.mjs";
 import { refreshGroupFinanceApp } from "./finance-app.mjs";
 import { refreshShipApp, closeShipAppIfOpen } from "./ship-app.mjs";
+import { registerMapStyleSettings } from "./destination-map.mjs";
 
 Hooks.once("init", () => {
   registerTradeGoodsSettings();
   registerPermissionsSettings();
+  registerMapStyleSettings();
 });
 
 Hooks.once("ready", () => {

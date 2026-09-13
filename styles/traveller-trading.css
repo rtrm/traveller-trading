@@ -293,11 +293,12 @@
 #tt-root tr.tt-refunded { opacity: 0.5; text-decoration: line-through; }
 
 #tt-root .tt-map-canvas { position: relative; background: var(--panel); border: 1px solid var(--border); border-radius: 5px; padding: 8px; }
-#tt-root .tt-map-svg { width: 100%; height: auto; display: block; }
+#tt-root .tt-map-svg { width: 100%; height: auto; display: block; border-radius: 4px; }
 #tt-root .tt-map-world:not(.tt-map-origin) { cursor: pointer; }
 #tt-root .tt-map-world:not(.tt-map-origin):hover circle { r: 10; stroke: var(--gold); }
-#tt-root .tt-map-world text { font-size: 10px; fill: var(--text-muted); font-family: "SFMono-Regular", Consolas, monospace; pointer-events: none; }
-#tt-root .tt-map-origin text { fill: var(--gold); font-weight: 700; }
+#tt-root .tt-map-world text { pointer-events: none; font-family: "SFMono-Regular", Consolas, monospace; }
+#tt-root .tt-map-starport { font-size: 11px; font-weight: 700; }
+#tt-root .tt-map-label { font-size: 9.5px; }
 #tt-root .tt-map-tooltip {
   position: absolute;
   z-index: 60;

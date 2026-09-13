@@ -1,9 +1,39 @@
 import { esc } from "./window-base.mjs";
 import { TradingWindowBase } from "./window-base.mjs";
+import { MODULE_ID } from "./constants.mjs";
 
 // Same milieu the Drinax Tracker module already uses for this campaign's
 // own Traveller Map lookups — keeps results consistent across both tools.
 const CAMPAIGN_MILIEU = "M1105";
+
+// Approximate palettes inspired by travellermap.com's own named styles
+// (not pixel-exact reproductions — this is our own SVG rendering, not
+// their image renderer, so it can only aim for "in the spirit of").
+const MAP_STYLES = {
+  poster: { title: "Poster (dark)", bg: "#05070d", grid: "#1c2536", labelColor: "#8892a3", origin: "#c9a24a", zoneRed: "#c1443c", zoneAmber: "#d98b3f", zoneGreen: "#4fb0a6" },
+  print: { title: "Print (light)", bg: "#f5f2ea", grid: "#c9c2ae", labelColor: "#6b6656", origin: "#8a5a10", zoneRed: "#a5342c", zoneAmber: "#a86b1f", zoneGreen: "#2e7d5b" },
+  atlas: { title: "Atlas (grayscale)", bg: "#ffffff", grid: "#c9c9c9", labelColor: "#666666", origin: "#1a1a1a", zoneRed: "#4d4d4d", zoneAmber: "#7a7a7a", zoneGreen: "#333333" },
+  candy: { title: "Candy (vibrant)", bg: "#0a1f38", grid: "#274468", labelColor: "#9fd1ff", origin: "#ffe066", zoneRed: "#ff4d6d", zoneAmber: "#ffb347", zoneGreen: "#4dffb8" }
+};
+const DEFAULT_STYLE = "poster";
+
+export function registerMapStyleSettings() {
+  game.settings.register(MODULE_ID, "mapStyle", {
+    name: "Jump Map Style",
+    hint: "Visual style for the destination-picker jump map, loosely matching travellermap.com's own named styles.",
+    scope: "world",
+    config: true,
+    type: String,
+    choices: Object.fromEntries(Object.entries(MAP_STYLES).map(([k, v]) => [k, v.title])),
+    default: DEFAULT_STYLE
+  });
+}
+
+function currentStyle() {
+  let key = DEFAULT_STYLE;
+  try { key = game.settings.get(MODULE_ID, "mapStyle") || DEFAULT_STYLE; } catch (err) { /* setting not registered yet */ }
+  return MAP_STYLES[key] || MAP_STYLES[DEFAULT_STYLE];
+}
 
 function formatHex(hexX, hexY) {
   return String(hexX).padStart(2, "0") + String(hexY).padStart(2, "0");
@@ -46,10 +76,44 @@ async function fetchJumpWorlds(sector, hex, jump) {
   return json?.Worlds || [];
 }
 
-function zoneColor(zone) {
-  if (zone === "R") return "#c1443c";
-  if (zone === "A") return "#d98b3f";
-  return "#4fb0a6";
+function zoneColorKey(zone) {
+  if (zone === "R") return "zoneRed";
+  if (zone === "A") return "zoneAmber";
+  return "zoneGreen";
+}
+
+// ---------------------------------------------------------------------------
+// Hex geometry. Traveller Map's own world-space coordinates (WorldX/WorldY,
+// as returned per-world by /api/jumpworlds) are NOT plain Cartesian — hex
+// columns are offset vertically by half a row on alternating columns. This
+// is travellermap.com's own documented worldXYToMapXY transform (per their
+// API docs), which is what makes hexes tile correctly and lets the grid
+// backdrop below share the exact same coordinate math as the world dots.
+// ---------------------------------------------------------------------------
+const PARSEC_SCALE_X = Math.cos(Math.PI / 6); // ~0.866
+const RENDER_SCALE = 58; // our own pixels-per-parsec for this SVG, independent of travellermap.com's own image scale
+const HEX_RADIUS = RENDER_SCALE / Math.sqrt(3); // center-to-vertex, derived to match the column/row spacing below
+
+function isEven(n) { return ((n % 2) + 2) % 2 === 0; }
+
+function worldToPixel(worldX, worldY) {
+  const ix = worldX - 0.5;
+  const iy = isEven(worldX) ? worldY - 0.5 : worldY;
+  const mapX = ix * PARSEC_SCALE_X;
+  const mapY = -iy;
+  return { x: mapX * RENDER_SCALE, y: -mapY * RENDER_SCALE };
+}
+
+// Flat-top hexagon path centered at (cx, cy) — vertices at 0/60/120/180/
+// 240/300 degrees give flat (horizontal) top and bottom edges, matching
+// Traveller's column-offset hex layout.
+function hexPoints(cx, cy, r) {
+  const pts = [];
+  for (let i = 0; i < 6; i++) {
+    const a = (Math.PI / 3) * i;
+    pts.push(`${(cx + r * Math.cos(a)).toFixed(1)},${(cy + r * Math.sin(a)).toFixed(1)}`);
+  }
+  return pts.join(" ");
 }
 
 let instance = null;
@@ -83,8 +147,8 @@ class DestinationMapApp extends TradingWindowBase {
       id: "tt-destination-map-app",
       title: "Choose Destination",
       classes: ["traveller-trading-window"],
-      width: 720,
-      height: 620,
+      width: 760,
+      height: 660,
       resizable: true
     });
   }
@@ -122,26 +186,37 @@ class DestinationMapApp extends TradingWindowBase {
 
   _renderContent() {
     const worlds = this.worlds;
-    const pad = 36, w = 640, h = 460;
+    const style = currentStyle();
+    const pad = HEX_RADIUS * 2;
     let bodyHtml;
+
     if (this.loadError) {
       bodyHtml = `<p class="tt-empty">${esc(this.loadError)}</p>`;
     } else if (!worlds.length) {
       bodyHtml = `<p class="tt-empty">No worlds found within range.</p>`;
     } else {
-      const xs = worlds.map(x => x.WorldX ?? 0);
-      const ys = worlds.map(x => x.WorldY ?? 0);
-      const minX = Math.min(...xs), maxX = Math.max(...xs);
-      const minY = Math.min(...ys), maxY = Math.max(...ys);
-      const spanX = (maxX - minX) || 1;
-      const spanY = (maxY - minY) || 1;
-      const toX = (x) => pad + (x - minX) / spanX * (w - 2 * pad);
-      // Flipped so increasing WorldY (coreward) renders toward the top of the map.
-      const toY = (y) => pad + (maxY - y) / spanY * (h - 2 * pad);
-      const dots = worlds.map(world => {
+      const positioned = worlds.map(world => ({ world, px: worldToPixel(world.WorldX ?? 0, world.WorldY ?? 0) }));
+      const xs = positioned.map(p => p.px.x), ys = positioned.map(p => p.px.y);
+      const minX = Math.min(...xs) - pad, maxX = Math.max(...xs) + pad;
+      const minY = Math.min(...ys) - pad, maxY = Math.max(...ys) + pad;
+      const vbW = maxX - minX, vbH = maxY - minY;
+
+      // Hex grid backdrop: every cell within the visible hex-column/row
+      // range, not just cells that happen to hold a world, so it reads as
+      // an actual sector map rather than floating dots.
+      const worldXs = worlds.map(w => w.WorldX ?? 0), worldYs = worlds.map(w => w.WorldY ?? 0);
+      const gridCells = [];
+      for (let gx = Math.min(...worldXs) - 1; gx <= Math.max(...worldXs) + 1; gx++) {
+        for (let gy = Math.min(...worldYs) - 1; gy <= Math.max(...worldYs) + 1; gy++) {
+          const p = worldToPixel(gx, gy);
+          gridCells.push(`<polygon points="${hexPoints(p.x, p.y, HEX_RADIUS)}" fill="none" stroke="${style.grid}" stroke-width="1"></polygon>`);
+        }
+      }
+
+      const dots = positioned.map(({ world, px }) => {
         const isOrigin = world.Hex === this.originHex && world.Sector === this.originSector;
-        const cx = toX(world.WorldX ?? 0), cy = toY(world.WorldY ?? 0);
-        const color = isOrigin ? "#c9a24a" : zoneColor(world.Zone);
+        const color = isOrigin ? style.origin : style[zoneColorKey(world.Zone)];
+        const starport = (world.UWP || "?").charAt(0);
         return `
           <g class="tt-map-world ${isOrigin ? "tt-map-origin" : ""}"
              data-tt-map-world
@@ -150,12 +225,18 @@ class DestinationMapApp extends TradingWindowBase {
              data-hex="${esc(world.Hex || "")}"
              data-uwp="${esc(world.UWP || "")}"
              data-remarks="${esc(world.Remarks || "")}">
-            <circle cx="${cx}" cy="${cy}" r="7" fill="${color}" stroke="#0b0f17" stroke-width="1.5"></circle>
-            <text x="${cx}" y="${cy + 18}" text-anchor="middle">${esc(world.Name || "")}${isOrigin ? " (current)" : ""}</text>
+            <circle cx="${px.x.toFixed(1)}" cy="${px.y.toFixed(1)}" r="${(HEX_RADIUS * 0.42).toFixed(1)}" fill="${color}" stroke="${style.bg}" stroke-width="1.5"></circle>
+            <text x="${px.x.toFixed(1)}" y="${(px.y + 3).toFixed(1)}" text-anchor="middle" class="tt-map-starport" fill="${style.bg}">${esc(starport)}</text>
+            <text x="${px.x.toFixed(1)}" y="${(px.y + HEX_RADIUS * 0.85).toFixed(1)}" text-anchor="middle" class="tt-map-label" fill="${isOrigin ? style.origin : style.labelColor}">${esc(world.Name || "")}${isOrigin ? " (current)" : ""}</text>
           </g>`;
       }).join("");
+
       bodyHtml = `
-        <svg class="tt-map-svg" viewBox="0 0 ${w} ${h}" data-tt-map-svg>${dots}</svg>
+        <svg class="tt-map-svg" viewBox="${minX.toFixed(1)} ${minY.toFixed(1)} ${vbW.toFixed(1)} ${vbH.toFixed(1)}" data-tt-map-svg
+             style="background:${style.bg};">
+          <g>${gridCells.join("")}</g>
+          <g>${dots}</g>
+        </svg>
         <div class="tt-map-tooltip" data-tt-map-tooltip hidden></div>`;
     }
 
