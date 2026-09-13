@@ -299,6 +299,17 @@
 #tt-root .tt-map-world text { pointer-events: none; font-family: "SFMono-Regular", Consolas, monospace; }
 #tt-root .tt-map-starport { font-size: 11px; font-weight: 700; }
 #tt-root .tt-map-label { font-size: 9.5px; }
+
+/* Authentic map: travellermap.com's own fetched SVG as the visual layer,
+   with a same-sized transparent overlay SVG on top carrying just our
+   click/hover targets (see destination-map.mjs's _fetchAuthenticMap for
+   how those are calibrated against the fetched image). */
+#tt-root .tt-map-authentic { position: relative; border-radius: 4px; overflow: hidden; }
+#tt-root .tt-map-authentic svg { width: 100%; height: auto; display: block; }
+#tt-root .tt-map-overlay { position: absolute; inset: 0; width: 100%; height: 100%; }
+#tt-root .tt-map-hit { fill: transparent; stroke: none; }
+#tt-root .tt-map-hit:not(.tt-map-origin) { cursor: pointer; }
+#tt-root .tt-map-hit:not(.tt-map-origin):hover { fill: rgba(255,255,255,0.14); stroke: var(--gold); stroke-width: 2; }
 #tt-root .tt-map-tooltip {
   position: absolute;
   z-index: 60;
