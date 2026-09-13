@@ -225,21 +225,6 @@ function hexPoints(cx, cy, r) {
   return pts.join(" ");
 }
 
-// Finds the <text> label in a fetched jumpmap SVG matching the origin
-// world's name or hex, to use as a calibration anchor (see
-// _fetchAuthenticMap below). Returns its {x, y} attributes, or null.
-function findOriginAnchor(svgDoc, originName, originHex) {
-  const texts = Array.from(svgDoc.querySelectorAll("text"));
-  const norm = s => (s || "").trim().toLowerCase();
-  let match = texts.find(t => norm(t.textContent) === norm(originName));
-  if (!match) match = texts.find(t => norm(t.textContent) === norm(originHex));
-  if (!match) return null;
-  const x = Number(match.getAttribute("x"));
-  const y = Number(match.getAttribute("y"));
-  if (!Number.isFinite(x) || !Number.isFinite(y)) return null;
-  return { x, y };
-}
-
 let instance = null;
 
 // Opens (or refocuses) the destination-picker map for one ship. onPick is
@@ -301,13 +286,13 @@ class DestinationMapApp extends TradingWindowBase {
     await this._fetchAuthenticMap();
   }
 
-  // Best-effort: fetches travellermap.com's own rendered jump map as SVG
-  // and calibrates our click/hover overlay against it by finding the
-  // origin world's own label in that SVG and comparing it to where our
-  // formula predicts that world should sit. Any failure along the way
-  // (network, CORS, unexpected shape, label not found) just leaves
-  // this.authentic null and _renderContent() below falls back to its own
-  // fully self-contained rendering instead.
+  // Best-effort: fetches travellermap.com's own rendered jump map as SVG.
+  // Just fetches and validates it here — the actual click/hover overlay
+  // calibration (see _calibrateAndInjectOverlay) needs the SVG live in the
+  // document to measure correctly, so it happens after _renderContent()
+  // inserts this markup, not here. Any failure along the way (network,
+  // CORS, unexpected shape) leaves this.authentic null and _renderContent()
+  // below falls back to its own fully self-contained rendering instead.
   async _fetchAuthenticMap() {
     const originWorld = this.worlds.find(w => w.Hex === this.originHex && w.Sector === this.originSector);
     if (!originWorld) return;
@@ -317,26 +302,81 @@ class DestinationMapApp extends TradingWindowBase {
       const svgEl = doc.querySelector("svg");
       if (!svgEl || doc.querySelector("parsererror")) throw new Error("Unparseable SVG");
       const viewBox = svgEl.getAttribute("viewBox") || `0 0 ${svgEl.getAttribute("width")} ${svgEl.getAttribute("height")}`;
-      const anchor = findOriginAnchor(doc, originWorld.Name, originWorld.Hex);
-      let offsetX, offsetY;
-      if (anchor) {
-        const theoretical = worldToPixel(originWorld.WorldX ?? 0, originWorld.WorldY ?? 0, JUMPMAP_SCALE);
-        offsetX = anchor.x - theoretical.x;
-        offsetY = anchor.y - theoretical.y;
-      } else {
-        // Couldn't find a label to calibrate against — fall back to
-        // assuming the origin sits at the image's center, which is
-        // travellermap.com's likely (but unconfirmed) convention for a
-        // jump map clipped symmetrically around the given hex.
-        const vb = viewBox.split(/\s+/).map(Number);
-        offsetX = (vb[0] ?? 0) + (vb[2] ?? 0) / 2;
-        offsetY = (vb[1] ?? 0) + (vb[3] ?? 0) / 2;
-      }
-      this.authentic = { svgMarkup: svgEl.outerHTML, viewBox, offsetX, offsetY };
+      this.authentic = { svgMarkup: svgEl.outerHTML, viewBox };
     } catch (err) {
       console.warn("Traveller Trading | Couldn't render travellermap.com's own jump map, using the built-in fallback map instead", err);
       this.authentic = null;
     }
+  }
+
+  // Runs once the authentic map's SVG is actually attached to the page
+  // (called from _renderContent right after setting innerHTML). Finding
+  // the origin's own label and reading its position via getBBox()/getCTM()
+  // — rather than its raw x/y attributes — matters because travellermap.com
+  // very likely wraps its content in a positioning <g transform="...">
+  // internally; raw attribute reads ignore that transform entirely and
+  // silently produce a wrong (but not obviously invalid) offset, which is
+  // exactly the "renders fine, clicks land on the wrong system" failure
+  // mode this replaces. getBBox()/getCTM() only return sensible values
+  // once the element is laid out in the live DOM, which is why this can't
+  // run back in _fetchAuthenticMap on the detached, parsed document.
+  _calibrateAndInjectOverlay() {
+    const container = this.root.querySelector(".tt-map-authentic");
+    const liveSvg = container?.querySelector("svg");
+    const originWorld = this.worlds.find(w => w.Hex === this.originHex && w.Sector === this.originSector);
+    if (!container || !liveSvg || !originWorld) return;
+
+    let offsetX, offsetY;
+    try {
+      const norm = s => (s || "").trim().toLowerCase();
+      const texts = Array.from(liveSvg.querySelectorAll("text"));
+      let match = texts.find(t => norm(t.textContent) === norm(originWorld.Name));
+      if (!match) match = texts.find(t => norm(t.textContent) === norm(originWorld.Hex));
+      if (!match) throw new Error("Origin label not found in the fetched map");
+
+      const bbox = match.getBBox();
+      const pt = liveSvg.createSVGPoint();
+      pt.x = bbox.x + bbox.width / 2;
+      pt.y = bbox.y + bbox.height / 2;
+      const ctm = match.getCTM();
+      if (!ctm) throw new Error("No CTM available for the origin label");
+      const anchor = pt.matrixTransform(ctm); // local space -> liveSvg's own viewBox units
+
+      const theoretical = worldToPixel(originWorld.WorldX ?? 0, originWorld.WorldY ?? 0, JUMPMAP_SCALE);
+      offsetX = anchor.x - theoretical.x;
+      offsetY = anchor.y - theoretical.y;
+    } catch (err) {
+      // Fall back to assuming the origin sits at the image's center —
+      // travellermap.com's likely (but unconfirmed) convention for a jump
+      // map clipped symmetrically around the given hex.
+      console.warn("Traveller Trading | Couldn't calibrate against the origin's label, falling back to a centered guess", err);
+      const vb = this.authentic.viewBox.split(/\s+/).map(Number);
+      offsetX = (vb[0] ?? 0) + (vb[2] ?? 0) / 2;
+      offsetY = (vb[1] ?? 0) + (vb[3] ?? 0) / 2;
+    }
+
+    const hits = this.worlds.map(world => {
+      const isOrigin = world.Hex === this.originHex && world.Sector === this.originSector;
+      const p = worldToPixel(world.WorldX ?? 0, world.WorldY ?? 0, JUMPMAP_SCALE);
+      const cx = p.x + offsetX, cy = p.y + offsetY;
+      return `
+        <circle class="tt-map-hit ${isOrigin ? "tt-map-origin" : ""}"
+          data-tt-map-world
+          data-name="${esc(world.Name || "(unnamed)")}"
+          data-sector="${esc(world.Sector || "")}"
+          data-hex="${esc(world.Hex || "")}"
+          data-uwp="${esc(world.UWP || "")}"
+          data-remarks="${esc(world.Remarks || "")}"
+          cx="${cx.toFixed(1)}" cy="${cy.toFixed(1)}" r="${(JUMPMAP_SCALE * 0.4).toFixed(1)}"></circle>`;
+    }).join("");
+
+    const overlay = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+    overlay.setAttribute("class", "tt-map-overlay");
+    overlay.setAttribute("viewBox", this.authentic.viewBox);
+    overlay.setAttribute("data-tt-map-svg", "");
+    overlay.innerHTML = hits;
+    container.appendChild(overlay);
+    this._wireMapInteractions();
   }
 
   activateListeners(html) {
@@ -374,34 +414,21 @@ class DestinationMapApp extends TradingWindowBase {
         <div class="tt-map-canvas">${bodyHtml}</div>
       </div>`;
 
-    if (!this.loadError && worlds.length) this._wireMapInteractions();
+    if (this.loadError || !worlds.length) return;
+    // The authentic map's markup is now live in the DOM (needed for the
+    // getBBox()/getCTM() calibration below); the fallback map already has
+    // everything it needs and just wires up its existing SVG directly.
+    if (this.authentic) this._calibrateAndInjectOverlay();
+    else this._wireMapInteractions();
   }
 
-  // Renders travellermap.com's own SVG as the visual background, with a
-  // second, transparent SVG of the same dimensions layered on top holding
-  // just our clickable/hoverable hit-targets (see _fetchAuthenticMap for
-  // how their positions are calibrated).
+  // Renders travellermap.com's own SVG as the visual background. The
+  // click/hover overlay isn't built here — it needs this markup already
+  // live in the document to calibrate correctly, so _renderContent() adds
+  // it afterward via _calibrateAndInjectOverlay().
   _authenticMapHtml() {
-    const { svgMarkup, viewBox, offsetX, offsetY } = this.authentic;
-    const hits = this.worlds.map(world => {
-      const isOrigin = world.Hex === this.originHex && world.Sector === this.originSector;
-      const p = worldToPixel(world.WorldX ?? 0, world.WorldY ?? 0, JUMPMAP_SCALE);
-      const cx = p.x + offsetX, cy = p.y + offsetY;
-      return `
-        <circle class="tt-map-hit ${isOrigin ? "tt-map-origin" : ""}"
-          data-tt-map-world
-          data-name="${esc(world.Name || "(unnamed)")}"
-          data-sector="${esc(world.Sector || "")}"
-          data-hex="${esc(world.Hex || "")}"
-          data-uwp="${esc(world.UWP || "")}"
-          data-remarks="${esc(world.Remarks || "")}"
-          cx="${cx.toFixed(1)}" cy="${cy.toFixed(1)}" r="${(JUMPMAP_SCALE * 0.4).toFixed(1)}"></circle>`;
-    }).join("");
     return `
-      <div class="tt-map-authentic">
-        ${svgMarkup}
-        <svg class="tt-map-overlay" viewBox="${viewBox}" data-tt-map-svg>${hits}</svg>
-      </div>
+      <div class="tt-map-authentic">${this.authentic.svgMarkup}</div>
       <div class="tt-map-tooltip" data-tt-map-tooltip hidden></div>`;
   }
 
