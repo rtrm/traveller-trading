@@ -76,11 +76,13 @@ export class LauncherController {
 
   async _promptAddShip(isStorage) {
     const label = isStorage ? "storage location" : "starship";
+    const content = document.createElement("div");
+    content.innerHTML = `<div class="tt-field"><label>Name of the ${label}</label><input type="text" id="tt-new-name" placeholder="e.g. ${isStorage ? "Warehouse 7" : "Far Trader"}"></div>`;
     const name = await foundry.applications.api.DialogV2.wait({
       window: { title: `Add ${isStorage ? "Storage" : "Starship"}` },
-      content: `<div class="tt-field"><label>Name of the ${label}</label><input type="text" id="tt-new-name" placeholder="e.g. ${isStorage ? "Warehouse 7" : "Far Trader"}"></div>`,
+      content,
       buttons: [
-        { action: "ok", label: "Add", default: true, callback: (event, button) => button.form.querySelector("#tt-new-name").value.trim() },
+        { action: "ok", label: "Add", default: true, callback: () => content.querySelector("#tt-new-name").value.trim() },
         { action: "cancel", label: "Cancel", callback: () => null }
       ],
       rejectClose: false

@@ -66,13 +66,14 @@ export class TravellerTradingPermissionsMenu extends foundry.applications.api.Ap
   static DEFAULT_OPTIONS = { id: "tt-permissions-menu", window: { title: "Traveller Trading — Permissions" } };
 
   async render(options) {
-    const content = await buildPermissionsHtml();
+    const content = document.createElement("div");
+    content.innerHTML = await buildPermissionsHtml();
     foundry.applications.api.DialogV2.wait({
       window: { title: "Traveller Trading — Permissions" },
       content,
       position: { width: 520 },
       buttons: [
-        { action: "save", icon: "fa-solid fa-check", label: "Save", default: true, callback: (event, button) => applyPermissions(button.form) },
+        { action: "save", icon: "fa-solid fa-check", label: "Save", default: true, callback: () => applyPermissions(content) },
         { action: "cancel", icon: "fa-solid fa-xmark", label: "Cancel" }
       ],
       rejectClose: false

@@ -88,28 +88,32 @@ function showFindDialog({ title, purposeLabel, checkOptions, starportDM, priorDM
     priorDM ? `Previous attempts here this month: ${priorDM}` : null,
     `Rushed search (if checked below): -2`
   ].filter(Boolean).join(" &middot; ");
-  const content = `
-    <div id="tt-root">
-      <p class="tt-hint">Average (8+) check to find a ${esc(purposeLabel)}.</p>
-      <div class="tt-field">
-        <label>Check Type</label>
-        ${checkOptions.map((o, i) => `<label style="display:block;margin-bottom:4px;font-size:12.5px;"><input type="radio" name="tt-check-type" value="${esc(o.value)}" ${i === 0 ? "checked" : ""}> ${esc(o.label)}</label>`).join("")}
-      </div>
-      <p class="tt-hint">DMs to apply: ${dmLines}</p>
-      <div class="tt-field tt-field-checkbox"><label><input type="checkbox" id="tt-rush"> Rush the search (DM-2, resolves in 1D6&times;10 hours instead of the normal wait)</label></div>
-      <div class="tt-field"><label>Your total (already-modified) check result</label><input type="number" id="tt-result" placeholder="e.g. 9"></div>
-    </div>`;
+  // Built as a detached element (rather than an HTML string) so the
+  // callback below can read values directly off this same reference —
+  // DialogV2's button.form (the <form> it wraps content in) turned out not
+  // reliable to query through in practice, so this no longer depends on it
+  // at all.
+  const content = document.createElement("div");
+  content.id = "tt-root";
+  content.innerHTML = `
+    <p class="tt-hint">Average (8+) check to find a ${esc(purposeLabel)}.</p>
+    <div class="tt-field">
+      <label>Check Type</label>
+      ${checkOptions.map((o, i) => `<label style="display:block;margin-bottom:4px;font-size:12.5px;"><input type="radio" name="tt-check-type" value="${esc(o.value)}" ${i === 0 ? "checked" : ""}> ${esc(o.label)}</label>`).join("")}
+    </div>
+    <p class="tt-hint">DMs to apply: ${dmLines}</p>
+    <div class="tt-field tt-field-checkbox"><label><input type="checkbox" id="tt-rush"> Rush the search (DM-2, resolves in 1D6&times;10 hours instead of the normal wait)</label></div>
+    <div class="tt-field"><label>Your total (already-modified) check result</label><input type="number" id="tt-result" placeholder="e.g. 9"></div>`;
   return foundry.applications.api.DialogV2.wait({
     window: { title },
     content,
     buttons: [
       {
         action: "ok", label: "Attempt Search", default: true,
-        callback: (event, button) => {
-          const form = button.form;
-          const checkType = form.querySelector('input[name="tt-check-type"]:checked')?.value || checkOptions[0].value;
-          const rushed = form.querySelector("#tt-rush").checked;
-          const result = form.querySelector("#tt-result").value;
+        callback: () => {
+          const checkType = content.querySelector('input[name="tt-check-type"]:checked')?.value || checkOptions[0].value;
+          const rushed = content.querySelector("#tt-rush").checked;
+          const result = content.querySelector("#tt-result").value;
           return result === "" ? null : { checkType, rushed, result: Number(result) };
         }
       },
@@ -129,17 +133,17 @@ function showBrokerSearchDialog({ title, purposeLabel, starportDM, priorDM }) {
     priorDM ? `Previous attempts here this month: ${priorDM}` : null,
     `Rushed search (if checked below): -2`
   ].filter(Boolean).join(" &middot; ");
-  const content = `
-    <div id="tt-root">
-      <p class="tt-hint">Canvassing the local network for a ${esc(purposeLabel)} — this search is rolled automatically using the prospective ${esc(purposeLabel)}'s own skill, not a player check.</p>
-      <p class="tt-hint">DMs applied: ${dmLines}</p>
-      <div class="tt-field tt-field-checkbox"><label><input type="checkbox" id="tt-rush"> Rush the search (DM-2, resolves in 1D6&times;10 hours instead of the normal wait)</label></div>
-    </div>`;
+  const content = document.createElement("div");
+  content.id = "tt-root";
+  content.innerHTML = `
+    <p class="tt-hint">Canvassing the local network for a ${esc(purposeLabel)} — this search is rolled automatically using the prospective ${esc(purposeLabel)}'s own skill, not a player check.</p>
+    <p class="tt-hint">DMs applied: ${dmLines}</p>
+    <div class="tt-field tt-field-checkbox"><label><input type="checkbox" id="tt-rush"> Rush the search (DM-2, resolves in 1D6&times;10 hours instead of the normal wait)</label></div>`;
   return foundry.applications.api.DialogV2.wait({
     window: { title },
     content,
     buttons: [
-      { action: "ok", label: "Start Search", default: true, callback: (event, button) => ({ rushed: button.form.querySelector("#tt-rush").checked }) },
+      { action: "ok", label: "Start Search", default: true, callback: () => ({ rushed: content.querySelector("#tt-rush").checked }) },
       { action: "cancel", label: "Cancel", callback: () => null }
     ],
     rejectClose: false

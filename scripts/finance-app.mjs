@@ -242,11 +242,10 @@ class GroupFinanceApp extends TradingWindowBase {
       content,
       ok: {
         label: "Add",
-        callback: (event, button) => {
-          const form = button.form;
-          const type = form.querySelector('[data-tt-select-handler="txType"] .tt-select-opt.selected')?.dataset.ttSelectOpt || "income";
-          const description = form.querySelector("#tt-dlg-desc").value.trim();
-          const amount = Math.abs(Number(form.querySelector("#tt-dlg-amount").value)) || 0;
+        callback: () => {
+          const type = content.querySelector('[data-tt-select-handler="txType"] .tt-select-opt.selected')?.dataset.ttSelectOpt || "income";
+          const description = content.querySelector("#tt-dlg-desc").value.trim();
+          const amount = Math.abs(Number(content.querySelector("#tt-dlg-amount").value)) || 0;
           return { type, description, amount };
         }
       },
@@ -278,12 +277,11 @@ class GroupFinanceApp extends TradingWindowBase {
       content,
       ok: {
         label: isEdit ? "Save" : "Add",
-        callback: (event, button) => {
-          const form = button.form;
-          const type = form.querySelector('[data-tt-select-handler="recType"] .tt-select-opt.selected')?.dataset.ttSelectOpt || "income";
-          const description = form.querySelector("#tt-dlg-desc").value.trim();
-          const amount = Math.abs(Number(form.querySelector("#tt-dlg-amount").value)) || 0;
-          const periodDays = Math.max(1, Number(form.querySelector("#tt-dlg-period").value) || 30);
+        callback: () => {
+          const type = content.querySelector('[data-tt-select-handler="recType"] .tt-select-opt.selected')?.dataset.ttSelectOpt || "income";
+          const description = content.querySelector("#tt-dlg-desc").value.trim();
+          const amount = Math.abs(Number(content.querySelector("#tt-dlg-amount").value)) || 0;
+          const periodDays = Math.max(1, Number(content.querySelector("#tt-dlg-period").value) || 30);
           return { type, description, amount, periodDays };
         }
       },

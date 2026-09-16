@@ -102,19 +102,19 @@ function claimDrag(dragId) {
 // Resolves null on cancel or an empty/zero entry, so callers can treat
 // falsy as "nothing to do" uniformly.
 async function promptQuantity({ title, label, defaultValue, max }) {
-  const content = `
-    <div id="tt-root">
-      <div class="tt-field">
-        <label>${esc(label)}</label>
-        <input type="number" id="tt-dlg-qty" min="0" ${max != null ? `max="${max}"` : ""} value="${defaultValue}">
-      </div>
+  const content = document.createElement("div");
+  content.id = "tt-root";
+  content.innerHTML = `
+    <div class="tt-field">
+      <label>${esc(label)}</label>
+      <input type="number" id="tt-dlg-qty" min="0" ${max != null ? `max="${max}"` : ""} value="${defaultValue}">
     </div>`;
   const result = await foundry.applications.api.DialogV2.prompt({
     window: { title },
     content,
     ok: {
       label: "Confirm",
-      callback: (event, button) => Math.max(0, Number(button.form.querySelector("#tt-dlg-qty").value) || 0)
+      callback: () => Math.max(0, Number(content.querySelector("#tt-dlg-qty").value) || 0)
     },
     rejectClose: false
   });
@@ -961,25 +961,24 @@ class ShipApp extends TradingWindowBase {
           <td><input type="number" class="tt-cell-input" data-tt-take="${c.id}" min="0" max="${p.maxTake}" value="${p.maxTake}" style="width:60px;"></td>
         </tr>`;
     }).join("");
-    const content = `
-      <div id="tt-root">
-        <p class="tt-hint">${esc(origin.Name || "")} &rarr; ${esc(destination.Name || "")}, ${distanceParsecs} parsec${distanceParsecs === 1 ? "" : "s"}. "Can board" is capped by remaining berths — own category first, then any spare berths one tier up (paying this category's fare).</p>
-        <table class="tt-table">
-          <thead><tr><th>Category</th><th>Roll</th><th>Generated</th><th>Can Board</th><th>Fare</th><th>Take</th></tr></thead>
-          <tbody>${rows}</tbody>
-        </table>
-      </div>`;
+    const content = document.createElement("div");
+    content.id = "tt-root";
+    content.innerHTML = `
+      <p class="tt-hint">${esc(origin.Name || "")} &rarr; ${esc(destination.Name || "")}, ${distanceParsecs} parsec${distanceParsecs === 1 ? "" : "s"}. "Can board" is capped by remaining berths — own category first, then any spare berths one tier up (paying this category's fare).</p>
+      <table class="tt-table">
+        <thead><tr><th>Category</th><th>Roll</th><th>Generated</th><th>Can Board</th><th>Fare</th><th>Take</th></tr></thead>
+        <tbody>${rows}</tbody>
+      </table>`;
     return foundry.applications.api.DialogV2.wait({
       window: { title: "Generate Passengers" },
       content,
       buttons: [
         {
           action: "confirm", label: "Board Selected Passengers", default: true,
-          callback: (event, button) => {
-            const form = button.form;
+          callback: () => {
             const taken = {};
             for (const c of PASSENGER_CATEGORIES) {
-              const input = form.querySelector(`[data-tt-take="${c.id}"]`);
+              const input = content.querySelector(`[data-tt-take="${c.id}"]`);
               taken[c.id] = Math.max(0, Math.min(plan[c.id].maxTake, Number(input?.value) || 0));
             }
             return taken;
