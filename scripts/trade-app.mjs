@@ -124,6 +124,37 @@ function showFindDialog({ title, purposeLabel, checkOptions, starportDM, priorDM
   });
 }
 
+// A lighter dialog for a BROKER search: no check-type or player roll, since
+// finding a broker isn't the Traveller's own skill check — it's rolled
+// automatically using the prospective broker's own 2D/3 skill (see
+// supplier-search.mjs's startSearch). Only "rush" is still a player choice.
+function showBrokerSearchDialog({ title, purposeLabel, starportDM, priorDM }) {
+  return new Promise(resolve => {
+    const dmLines = [
+      `Starport DM: ${starportDM >= 0 ? "+" : ""}${starportDM}`,
+      priorDM ? `Previous attempts here this month: ${priorDM}` : null,
+      `Rushed search (if checked below): -2`
+    ].filter(Boolean).join(" &middot; ");
+    const content = `
+      <div id="tt-root">
+        <p class="tt-hint">Canvassing the local network for a ${esc(purposeLabel)} — this search is rolled automatically using the prospective ${esc(purposeLabel)}'s own skill, not a player check.</p>
+        <p class="tt-hint">DMs applied: ${dmLines}</p>
+        <div class="tt-field tt-field-checkbox"><label><input type="checkbox" id="tt-rush"> Rush the search (DM-2, resolves in 1D6&times;10 hours instead of the normal wait)</label></div>
+      </div>`;
+    const dlg = new Dialog({
+      title,
+      content,
+      buttons: {
+        ok: { label: "Start Search", callback: (html) => resolve({ rushed: html[0].querySelector("#tt-rush").checked }) },
+        cancel: { label: "Cancel", callback: () => resolve(null) }
+      },
+      default: "ok",
+      close: () => resolve(null)
+    });
+    dlg.render(true);
+  });
+}
+
 class TradeMarketApp extends TradingWindowBase {
   constructor(docId, mode, options) {
     super(options);
@@ -228,20 +259,27 @@ class TradeMarketApp extends TradingWindowBase {
     const sp = worldStarportClass(this.world.UWP);
     const starportDM = starportSearchDM(sp);
     const priorDM = attemptDM(ship, worldKey);
-    const tl = worldTechLevelValue(this.world.UWP);
     const purposeLabel = kind === "contact" ? (this.mode === "buy" ? "supplier" : "buyer") : (this.blackMarket ? "fixer" : "local broker");
-    const checkOptions = this.blackMarket
-      ? [{ value: "streetwise", label: "Streetwise (EDU or SOC) — black market" }]
-      : [
-          { value: "broker", label: "Broker (EDU or SOC)" },
-          ...(tl !== null && tl >= 8 ? [{ value: "online", label: "Online (Admin, EDU only) — TL8+ world" }] : [])
-        ];
+    const titleLabel = `${purposeLabel[0].toUpperCase()}${purposeLabel.slice(1)}`;
 
-    const input = await showFindDialog({
-      title: `Find a ${purposeLabel[0].toUpperCase()}${purposeLabel.slice(1)}`,
-      purposeLabel, checkOptions, starportDM, priorDM
-    });
-    if (!input) return;
+    let input;
+    if (kind === "broker") {
+      // No player check — see startSearch's broker branch: this is rolled
+      // automatically using the prospective broker's own skill.
+      const rush = await showBrokerSearchDialog({ title: `Find a ${titleLabel}`, purposeLabel, starportDM, priorDM });
+      if (!rush) return;
+      input = { checkType: this.blackMarket ? "streetwise" : "broker", rushed: rush.rushed, result: null };
+    } else {
+      const tl = worldTechLevelValue(this.world.UWP);
+      const checkOptions = this.blackMarket
+        ? [{ value: "streetwise", label: "Streetwise (EDU or SOC) — black market" }]
+        : [
+            { value: "broker", label: "Broker (EDU or SOC)" },
+            ...(tl !== null && tl >= 8 ? [{ value: "online", label: "Online (Admin, EDU only) — TL8+ world" }] : [])
+          ];
+      input = await showFindDialog({ title: `Find a ${titleLabel}`, purposeLabel, checkOptions, starportDM, priorDM });
+      if (!input) return;
+    }
 
     const record = startSearch(ship, this.mode, kind, {
       checkType: input.checkType, blackMarket: this.blackMarket, rushed: input.rushed,
@@ -251,7 +289,9 @@ class TradeMarketApp extends TradingWindowBase {
     logDebugBlock(`Search started: ${purposeLabel} at ${this.world.Name} (${this.mode})`, [
       `Check: ${input.checkType}, rushed: ${input.rushed}`,
       `DMs shown: starport ${starportDM >= 0 ? "+" : ""}${starportDM}, previous attempts ${priorDM}`,
-      `Player-reported total: ${input.result} -> ${record.success ? "SUCCESS" : "FAILURE"}`,
+      kind === "broker"
+        ? `Auto-roll (broker's own skill): 2D6=[${record.autoRoll.dice.join("+")}]=${record.autoRoll.diceSum} + skill ${record.autoRoll.skill} = ${record.autoRoll.total} -> ${record.success ? "SUCCESS" : "FAILURE"}`
+        : `Player-reported total: ${input.result} -> ${record.success ? "SUCCESS" : "FAILURE"}`,
       `Wait roll: [${record.waitRolls.join("+")}]${record.rushed ? " x10" : ""} ${record.waitUnit} -> ${record.waitDays} day(s)`
     ]);
 

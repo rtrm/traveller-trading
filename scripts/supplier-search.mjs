@@ -54,19 +54,43 @@ export function rollSearchWait({ checkType, rushed }) {
 }
 
 // Starts a new search of `kind` ("contact" | "broker") for `mode` ("buy" |
-// "sell") on `ship`, mutating it in place (caller saves). `playerResult` is
-// the Traveller's own already-DM-adjusted roll total, taken at face value —
-// this module only tells the player what DMs SHOULD apply (via attemptDM/
-// starportSearchDM, read by the caller before showing the dialog), it never
-// does the arithmetic for them. Returns the created record.
+// "sell") on `ship`, mutating it in place (caller saves).
+//
+// For a CONTACT search, `playerResult` is the Traveller's own already-DM-
+// adjusted roll total, taken at face value — this module only tells the
+// player what DMs SHOULD apply (via attemptDM/starportSearchDM, read by the
+// caller before showing the dialog), it never does the arithmetic for them.
+//
+// For a BROKER search, there's no player check at all: you're not using
+// your own skill to find someone else's business, so this rolls the
+// prospective broker/fixer's own 2D/3 skill FIRST, then auto-rolls
+// 2D6 + that skill + the same DMs to determine if a suitable one turns up
+// — `playerResult` is ignored. The rolled skill is stashed (as
+// `_rolledBrokerSkill`, persisted like any other field) so finalizeSearch
+// can reveal it on success without rolling a second, different skill.
+//
+// Returns the created record.
 export function startSearch(ship, mode, kind, { checkType, blackMarket, rushed, playerResult, world, starportDM, priorAttemptDM }) {
   const worldKey = worldKeyFor(world);
   const wait = rollSearchWait({ checkType, rushed });
   const startedDayIndex = gameDayIndex() ?? 0;
-  const success = Number(playerResult) >= 8;
+
+  let success, autoRoll = null, rolledBrokerSkill = null;
+  if (kind === "broker") {
+    const skillRoll = rollLocalBrokerSkill();
+    rolledBrokerSkill = { ...skillRoll, doubleCrosser: !!blackMarket && skillRoll.dice[0] === 1 && skillRoll.dice[1] === 1 };
+    const dice = [rollD6(), rollD6()];
+    const diceSum = dice[0] + dice[1];
+    const total = diceSum + skillRoll.skill + starportDM + priorAttemptDM - (rushed ? 2 : 0);
+    autoRoll = { dice, diceSum, skill: skillRoll.skill, total };
+    success = total >= 8;
+  } else {
+    success = Number(playerResult) >= 8;
+  }
+
   const record = {
     kind, checkType, blackMarket: !!blackMarket, rushed: !!rushed,
-    playerResult: Number(playerResult), success,
+    playerResult: kind === "broker" ? null : Number(playerResult), autoRoll, success,
     starportDM, priorAttemptDM,
     worldKey,
     world: { Name: world?.Name || "", Sector: world?.Sector || "", Hex: world?.Hex || "", UWP: world?.UWP || "", Remarks: world?.Remarks || "", Zone: world?.Zone || "" },
@@ -75,7 +99,8 @@ export function startSearch(ship, mode, kind, { checkType, blackMarket, rushed, 
     status: "searching", resolved: false,
     market: null, priceOffers: null, // contact/buy
     worldCodes: null,                // contact/sell
-    broker: null                     // broker
+    broker: null,                    // broker (revealed only on success — see finalizeSearch)
+    _rolledBrokerSkill: rolledBrokerSkill
   };
   ship.supplierSearches = ship.supplierSearches || {};
   ship.supplierSearches[mode] = ship.supplierSearches[mode] || {};
@@ -92,7 +117,7 @@ export function startSearch(ship, mode, kind, { checkType, blackMarket, rushed, 
 // market). Mutates `record` in place.
 export function finalizeSearch(record, ship, mode) {
   const purpose = record.kind === "contact" ? (mode === "buy" ? "supplier" : "buyer") : (record.blackMarket ? "fixer" : "local broker");
-  const logLines = [`Result: ${record.success ? "SUCCESS" : "FAILURE"} (player-reported ${record.playerResult} vs 8+)`];
+  const logLines = [`Result: ${record.success ? "SUCCESS" : "FAILURE"} (${record.kind === "broker" ? `auto-roll ${record.autoRoll.total}` : `player-reported ${record.playerResult}`} vs 8+)`];
 
   if (record.kind === "contact") {
     if (record.success) {
@@ -131,12 +156,13 @@ export function finalizeSearch(record, ship, mode) {
       }
     }
   } else {
+    logLines.push(`Auto-roll (broker's own skill): 2D6=[${record.autoRoll.dice.join("+")}]=${record.autoRoll.diceSum} + skill ${record.autoRoll.skill} + starport ${record.starportDM >= 0 ? "+" : ""}${record.starportDM} + prior attempts ${record.priorAttemptDM}${record.rushed ? " - 2 (rushed)" : ""} = ${record.autoRoll.total}`);
     if (record.success) {
-      const roll = rollLocalBrokerSkill();
-      record.broker = { ...roll, doubleCrosser: record.blackMarket && roll.dice[0] === 1 && roll.dice[1] === 1 };
-      logLines.push(`Broker/fixer skill: 2D6=[${roll.dice.join("+")}]=${roll.sum} /3 = ${roll.skill}${record.broker.doubleCrosser ? " (natural 2 — possible double-crosser)" : ""}`);
+      record.broker = record._rolledBrokerSkill;
+      logLines.push(`Broker/fixer skill: 2D6=[${record.broker.dice.join("+")}]=${record.broker.sum} /3 = ${record.broker.skill}${record.broker.doubleCrosser ? " (natural 2 — possible double-crosser)" : ""}`);
     }
   }
+  delete record._rolledBrokerSkill;
   record.status = record.success ? "found" : "failed";
   record.resolved = true;
   logDebugBlock(`Search resolved: ${purpose} at ${record.world.Name} (${mode})`, logLines);
