@@ -175,12 +175,16 @@ export function pickLocationCandidate(candidates) {
   return new Promise(resolve => {
     let resolved = false;
     const finish = (value) => { if (!resolved) { resolved = true; resolve(value); } };
+    // DialogV2 requires the element passed as `content` itself to have no
+    // attributes ("config.content element must have no attributes"), so
+    // the actual "#tt-root" scoping div is nested one level inside it.
     const container = document.createElement("div");
-    container.id = "tt-root";
     container.innerHTML = `
-      <p class="tt-hint">Multiple matches — pick one:</p>
-      <div class="tt-tm-results">
-        ${candidates.map((c, i) => `<div class="tt-tm-result" data-tt-tm-idx="${i}">${esc(c.name)} &mdash; ${esc(c.sector)} ${esc(c.hex)}</div>`).join("")}
+      <div id="tt-root">
+        <p class="tt-hint">Multiple matches — pick one:</p>
+        <div class="tt-tm-results">
+          ${candidates.map((c, i) => `<div class="tt-tm-result" data-tt-tm-idx="${i}">${esc(c.name)} &mdash; ${esc(c.sector)} ${esc(c.hex)}</div>`).join("")}
+        </div>
       </div>`;
     const dlg = createDialogV2({
       window: { title: "Choose Location" },

@@ -32,16 +32,15 @@ export class LauncherController {
     this.root.classList.toggle("tt-standard-look", standardLookEnabled());
     this.root.addEventListener("click", (e) => this._onClick(e));
 
+    // jQuery: false opts into v14's future default (and silences the v13
+    // deprecation warning) — condition/callback below receive a plain
+    // HTMLElement rather than a jQuery-wrapped one.
     new foundry.applications.ux.ContextMenu(this.root, ".directory-item[data-tt-open]", [
       {
         name: "Delete",
         icon: '<i class="fa-solid fa-trash"></i>',
-        condition: (li) => {
-          const el = li instanceof jQuery ? li[0] : li;
-          return game.user.isGM && el.dataset.ttOpen !== "finance";
-        },
-        callback: async (li) => {
-          const el = li instanceof jQuery ? li[0] : li;
+        condition: (el) => game.user.isGM && el.dataset.ttOpen !== "finance",
+        callback: async (el) => {
           const id = el.dataset.ttOpen;
           const ok = await foundry.applications.api.DialogV2.confirm({ window: { title: "Delete" }, content: "<p>Delete this entry? This cannot be undone.</p>" });
           if (!ok) return;
@@ -50,7 +49,7 @@ export class LauncherController {
           this.refresh();
         }
       }
-    ]);
+    ], { jQuery: false });
 
     this.refresh();
   }

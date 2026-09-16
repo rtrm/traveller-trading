@@ -227,15 +227,19 @@ class GroupFinanceApp extends TradingWindowBase {
     // an HTML string) so bindCustomSelects can be wired before DialogV2
     // ever inserts it into the document — see createDialogV2's own note on
     // why this sidesteps needing DialogV2's exact render-callback shape.
+    // DialogV2 requires the element passed as `content` itself to have no
+    // attributes ("config.content element must have no attributes"), so
+    // the actual "#tt-root" scoping div is nested one level inside it.
     const content = document.createElement("div");
-    content.id = "tt-root";
     content.innerHTML = `
-      <div class="tt-field">
-        <label>Type</label>
-        ${customSelectHtml("txType", [{ value: "income", label: "Income" }, { value: "payment", label: "Payment" }], "income")}
-      </div>
-      <div class="tt-field"><label>Description</label><input type="text" id="tt-dlg-desc" placeholder="What is this transaction for?"></div>
-      <div class="tt-field"><label>Amount</label><input type="number" id="tt-dlg-amount" min="0"></div>`;
+      <div id="tt-root">
+        <div class="tt-field">
+          <label>Type</label>
+          ${customSelectHtml("txType", [{ value: "income", label: "Income" }, { value: "payment", label: "Payment" }], "income")}
+        </div>
+        <div class="tt-field"><label>Description</label><input type="text" id="tt-dlg-desc" placeholder="What is this transaction for?"></div>
+        <div class="tt-field"><label>Amount</label><input type="number" id="tt-dlg-amount" min="0"></div>
+      </div>`;
     bindCustomSelects(content);
     const result = await foundry.applications.api.DialogV2.prompt({
       window: { title: "Add Transaction" },
@@ -262,15 +266,16 @@ class GroupFinanceApp extends TradingWindowBase {
   async _openGroupRecurringDialog(existing) {
     const isEdit = !!existing;
     const content = document.createElement("div");
-    content.id = "tt-root";
     content.innerHTML = `
-      <div class="tt-field">
-        <label>Type</label>
-        ${customSelectHtml("recType", [{ value: "income", label: "Income" }, { value: "cost", label: "Cost" }], existing?.type || "income")}
-      </div>
-      <div class="tt-field"><label>Description</label><input type="text" id="tt-dlg-desc" value="${esc(existing?.description || "")}"></div>
-      <div class="tt-field"><label>Amount</label><input type="number" id="tt-dlg-amount" min="0" value="${existing ? Math.abs(existing.amount) : ""}"></div>
-      <div class="tt-field"><label>Every N days</label><input type="number" id="tt-dlg-period" min="1" value="${existing?.periodDays || 30}"></div>`;
+      <div id="tt-root">
+        <div class="tt-field">
+          <label>Type</label>
+          ${customSelectHtml("recType", [{ value: "income", label: "Income" }, { value: "cost", label: "Cost" }], existing?.type || "income")}
+        </div>
+        <div class="tt-field"><label>Description</label><input type="text" id="tt-dlg-desc" value="${esc(existing?.description || "")}"></div>
+        <div class="tt-field"><label>Amount</label><input type="number" id="tt-dlg-amount" min="0" value="${existing ? Math.abs(existing.amount) : ""}"></div>
+        <div class="tt-field"><label>Every N days</label><input type="number" id="tt-dlg-period" min="1" value="${existing?.periodDays || 30}"></div>
+      </div>`;
     bindCustomSelects(content);
     return foundry.applications.api.DialogV2.prompt({
       window: { title: isEdit ? "Edit Recurring Income or Cost" : "New Group Recurring Income or Cost" },

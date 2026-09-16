@@ -11,14 +11,18 @@ function fileSource() {
   return (typeof ForgeVTT !== "undefined" && ForgeVTT.usingTheForge) ? "forgevtt" : "data";
 }
 
+// The bare global "FilePicker" is deprecated as of v13 in favor of this
+// namespaced accessor.
+function FP() { return foundry.applications.apps.FilePicker.implementation; }
+
 const LOG_FOLDER = `${MODULE_ID}/${game?.world?.id ?? "world"}`;
 const LOG_FILENAME = "session-debug-log.txt";
 
 async function ensureFolder() {
   try {
-    await FilePicker.browse(fileSource(), LOG_FOLDER);
+    await FP().browse(fileSource(), LOG_FOLDER);
   } catch (err) {
-    await FilePicker.createDirectory(fileSource(), LOG_FOLDER, {});
+    await FP().createDirectory(fileSource(), LOG_FOLDER, {});
   }
 }
 
@@ -29,7 +33,7 @@ async function uploadBuffer() {
   try {
     await ensureFolder();
     const file = new File([buffer], LOG_FILENAME, { type: "text/plain" });
-    const result = await FilePicker.upload(fileSource(), LOG_FOLDER, file, {}, { notify: false });
+    const result = await FP().upload(fileSource(), LOG_FOLDER, file, {}, { notify: false });
     if (result?.path) cachedFileUrl = result.path;
   } catch (err) {
     console.warn("Traveller Trading | Could not write to the session debug log file.", err);
@@ -66,7 +70,7 @@ export async function logDebugBlock(title, lines) {
 export async function getDebugLogUrl() {
   if (cachedFileUrl) return cachedFileUrl;
   try {
-    const res = await FilePicker.browse(fileSource(), LOG_FOLDER);
+    const res = await FP().browse(fileSource(), LOG_FOLDER);
     cachedFileUrl = (res.files || []).find(f => f.endsWith(LOG_FILENAME)) || null;
   } catch (err) {
     cachedFileUrl = null;

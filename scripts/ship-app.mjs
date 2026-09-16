@@ -103,11 +103,12 @@ function claimDrag(dragId) {
 // falsy as "nothing to do" uniformly.
 async function promptQuantity({ title, label, defaultValue, max }) {
   const content = document.createElement("div");
-  content.id = "tt-root";
   content.innerHTML = `
-    <div class="tt-field">
-      <label>${esc(label)}</label>
-      <input type="number" id="tt-dlg-qty" min="0" ${max != null ? `max="${max}"` : ""} value="${defaultValue}">
+    <div id="tt-root">
+      <div class="tt-field">
+        <label>${esc(label)}</label>
+        <input type="number" id="tt-dlg-qty" min="0" ${max != null ? `max="${max}"` : ""} value="${defaultValue}">
+      </div>
     </div>`;
   const result = await foundry.applications.api.DialogV2.prompt({
     window: { title },
@@ -524,15 +525,16 @@ class ShipApp extends TradingWindowBase {
           <td class="tt-mono">${fmtCr(lot.tons * ratePerTon)}</td>
         </tr>`).join("");
       const content = document.createElement("div");
-      content.id = "tt-root";
       content.innerHTML = `
-        <p class="tt-hint">${esc(origin.Name || "")} &rarr; ${esc(destination.Name || "")}, ${distanceParsecs} parsec${distanceParsecs === 1 ? "" : "s"}. Rate: ${fmtCr(ratePerTon)}/ton. A lot must be taken whole or not at all.</p>
-        <p class="tt-hint" data-tt-freight-space-status></p>
-        <div style="max-height:320px;overflow-y:auto;">
-          <table class="tt-table">
-            <thead><tr><th></th><th>Lot</th><th>Tons</th><th>Fare</th></tr></thead>
-            <tbody>${rows || `<tr><td colspan="4" class="tt-empty">No freight lots generated.</td></tr>`}</tbody>
-          </table>
+        <div id="tt-root">
+          <p class="tt-hint">${esc(origin.Name || "")} &rarr; ${esc(destination.Name || "")}, ${distanceParsecs} parsec${distanceParsecs === 1 ? "" : "s"}. Rate: ${fmtCr(ratePerTon)}/ton. A lot must be taken whole or not at all.</p>
+          <p class="tt-hint" data-tt-freight-space-status></p>
+          <div style="max-height:320px;overflow-y:auto;">
+            <table class="tt-table">
+              <thead><tr><th></th><th>Lot</th><th>Tons</th><th>Fare</th></tr></thead>
+              <tbody>${rows || `<tr><td colspan="4" class="tt-empty">No freight lots generated.</td></tr>`}</tbody>
+            </table>
+          </div>
         </div>`;
       const status = content.querySelector("[data-tt-freight-space-status]");
       const checkboxes = Array.from(content.querySelectorAll("[data-tt-freight-lot]"));
@@ -962,13 +964,14 @@ class ShipApp extends TradingWindowBase {
         </tr>`;
     }).join("");
     const content = document.createElement("div");
-    content.id = "tt-root";
     content.innerHTML = `
-      <p class="tt-hint">${esc(origin.Name || "")} &rarr; ${esc(destination.Name || "")}, ${distanceParsecs} parsec${distanceParsecs === 1 ? "" : "s"}. "Can board" is capped by remaining berths — own category first, then any spare berths one tier up (paying this category's fare).</p>
-      <table class="tt-table">
-        <thead><tr><th>Category</th><th>Roll</th><th>Generated</th><th>Can Board</th><th>Fare</th><th>Take</th></tr></thead>
-        <tbody>${rows}</tbody>
-      </table>`;
+      <div id="tt-root">
+        <p class="tt-hint">${esc(origin.Name || "")} &rarr; ${esc(destination.Name || "")}, ${distanceParsecs} parsec${distanceParsecs === 1 ? "" : "s"}. "Can board" is capped by remaining berths — own category first, then any spare berths one tier up (paying this category's fare).</p>
+        <table class="tt-table">
+          <thead><tr><th>Category</th><th>Roll</th><th>Generated</th><th>Can Board</th><th>Fare</th><th>Take</th></tr></thead>
+          <tbody>${rows}</tbody>
+        </table>
+      </div>`;
     return foundry.applications.api.DialogV2.wait({
       window: { title: "Generate Passengers" },
       content,

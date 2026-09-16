@@ -12,6 +12,10 @@ function fileSource() {
   return (typeof ForgeVTT !== "undefined" && ForgeVTT.usingTheForge) ? "forgevtt" : "data";
 }
 
+// The bare global "FilePicker" is deprecated as of v13 in favor of this
+// namespaced accessor.
+function FP() { return foundry.applications.apps.FilePicker.implementation; }
+
 // Root-level folder (not nested under "worlds/<id>") so it reads sensibly
 // from the top of a Forge Assets Library that may hold files from several
 // worlds/modules; the world id still separates campaigns within it.
@@ -21,9 +25,9 @@ const LOG_PATH = `${LOG_FOLDER}/${LOG_FILENAME}`;
 
 async function ensureFolder() {
   try {
-    await FilePicker.browse(fileSource(), LOG_FOLDER);
+    await FP().browse(fileSource(), LOG_FOLDER);
   } catch (err) {
-    await FilePicker.createDirectory(fileSource(), LOG_FOLDER, {});
+    await FP().createDirectory(fileSource(), LOG_FOLDER, {});
   }
 }
 
@@ -36,7 +40,7 @@ let cachedFileUrl = null;
 async function findExistingFileUrl() {
   if (cachedFileUrl) return cachedFileUrl;
   try {
-    const res = await FilePicker.browse(fileSource(), LOG_FOLDER);
+    const res = await FP().browse(fileSource(), LOG_FOLDER);
     cachedFileUrl = (res.files || []).find(f => f.endsWith(LOG_FILENAME)) || null;
   } catch (err) {
     cachedFileUrl = null;
@@ -78,7 +82,7 @@ async function appendLines(lines) {
     const existing = await readExistingLog();
     const updated = existing + (existing && !existing.endsWith("\n") ? "\n" : "") + lines.join("\n") + "\n";
     const file = new File([updated], LOG_FILENAME, { type: "text/plain" });
-    const result = await FilePicker.upload(fileSource(), LOG_FOLDER, file, {}, { notify: false });
+    const result = await FP().upload(fileSource(), LOG_FOLDER, file, {}, { notify: false });
     if (result?.path) cachedFileUrl = result.path;
   } catch (err) {
     console.warn("Traveller Trading | Could not write to the transaction log file.", err);
