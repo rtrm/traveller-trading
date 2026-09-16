@@ -37,8 +37,7 @@ async function buildPermissionsHtml() {
     </table>`;
 }
 
-async function applyPermissions(form) {
-  const checkboxes = form.querySelectorAll("input[type=checkbox][data-doc]");
+async function applyPermissions(checkboxes) {
   const byDoc = new Map();
   checkboxes.forEach(cb => {
     if (!byDoc.has(cb.dataset.doc)) byDoc.set(cb.dataset.doc, {});
@@ -68,12 +67,18 @@ export class TravellerTradingPermissionsMenu extends foundry.applications.api.Ap
   async render(options) {
     const content = document.createElement("div");
     content.innerHTML = await buildPermissionsHtml();
+    // Captured now — querying `content` again inside the button callback
+    // (after DialogV2 has rendered) turned out unreliable, since DialogV2
+    // restructures/moves the content it's given internally. A direct
+    // reference captured before that happens keeps working regardless of
+    // where the nodes end up.
+    const checkboxes = content.querySelectorAll("input[type=checkbox][data-doc]");
     foundry.applications.api.DialogV2.wait({
       window: { title: "Traveller Trading — Permissions" },
       content,
       position: { width: 520 },
       buttons: [
-        { action: "save", icon: "fa-solid fa-check", label: "Save", default: true, callback: () => applyPermissions(content) },
+        { action: "save", icon: "fa-solid fa-check", label: "Save", default: true, callback: () => applyPermissions(checkboxes) },
         { action: "cancel", icon: "fa-solid fa-xmark", label: "Cancel" }
       ],
       rejectClose: false

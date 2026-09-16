@@ -110,12 +110,18 @@ async function promptQuantity({ title, label, defaultValue, max }) {
         <input type="number" id="tt-dlg-qty" min="0" ${max != null ? `max="${max}"` : ""} value="${defaultValue}">
       </div>
     </div>`;
+  // Captured now — querying `content` again inside the button callback
+  // (after DialogV2 has rendered) turned out unreliable, since DialogV2
+  // restructures/moves the content it's given internally. A direct
+  // reference captured before that happens keeps working regardless of
+  // where the node ends up.
+  const qtyEl = content.querySelector("#tt-dlg-qty");
   const result = await foundry.applications.api.DialogV2.prompt({
     window: { title },
     content,
     ok: {
       label: "Confirm",
-      callback: () => Math.max(0, Number(content.querySelector("#tt-dlg-qty").value) || 0)
+      callback: () => Math.max(0, Number(qtyEl.value) || 0)
     },
     rejectClose: false
   });
@@ -972,6 +978,12 @@ class ShipApp extends TradingWindowBase {
           <tbody>${rows}</tbody>
         </table>
       </div>`;
+    // Captured now — querying `content` again inside the button callback
+    // (after DialogV2 has rendered) turned out unreliable, since DialogV2
+    // restructures/moves the content it's given internally. Direct
+    // references captured before that happens keep working regardless of
+    // where the nodes end up.
+    const takeEls = Object.fromEntries(PASSENGER_CATEGORIES.map(c => [c.id, content.querySelector(`[data-tt-take="${c.id}"]`)]));
     return foundry.applications.api.DialogV2.wait({
       window: { title: "Generate Passengers" },
       content,
@@ -981,8 +993,7 @@ class ShipApp extends TradingWindowBase {
           callback: () => {
             const taken = {};
             for (const c of PASSENGER_CATEGORIES) {
-              const input = content.querySelector(`[data-tt-take="${c.id}"]`);
-              taken[c.id] = Math.max(0, Math.min(plan[c.id].maxTake, Number(input?.value) || 0));
+              taken[c.id] = Math.max(0, Math.min(plan[c.id].maxTake, Number(takeEls[c.id]?.value) || 0));
             }
             return taken;
           }

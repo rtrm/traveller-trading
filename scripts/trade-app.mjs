@@ -88,13 +88,8 @@ function showFindDialog({ title, purposeLabel, checkOptions, starportDM, priorDM
     priorDM ? `Previous attempts here this month: ${priorDM}` : null,
     `Rushed search (if checked below): -2`
   ].filter(Boolean).join(" &middot; ");
-  // Built as a detached element (rather than an HTML string) so the
-  // callback below can read values directly off this same reference —
-  // DialogV2's button.form (the <form> it wraps content in) turned out not
-  // reliable to query through in practice, so this no longer depends on it
-  // at all. DialogV2 requires the element passed as `content` itself to
-  // have no attributes ("config.content element must have no attributes"),
-  // so the actual "#tt-root" scoping div is nested one level inside it.
+  // Built as a detached element so field values can be captured up front —
+  // see the capture-not-requery note below for why.
   const content = document.createElement("div");
   content.innerHTML = `
     <div id="tt-root">
@@ -107,6 +102,21 @@ function showFindDialog({ title, purposeLabel, checkOptions, starportDM, priorDM
       <div class="tt-field tt-field-checkbox"><label><input type="checkbox" id="tt-rush"> Rush the search (DM-2, resolves in 1D6&times;10 hours instead of the normal wait)</label></div>
       <div class="tt-field"><label>Your total (already-modified) check result</label><input type="number" id="tt-result" placeholder="e.g. 9"></div>
     </div>`;
+  // Capture element references NOW, before DialogV2 ever renders — it
+  // turns out to restructure/move the content it's given internally
+  // (confirmed: DialogV2 already requires the passed element itself to
+  // carry no attributes, so it's doing more than a plain insert), which
+  // left `content.querySelector(...)` unable to find anything when called
+  // later from inside a button callback (querying AFTER that
+  // restructuring), even though the earlier "must have no attributes" fix
+  // was otherwise correct. A direct node reference captured before any of
+  // that happens keeps working regardless of where the node ends up,
+  // since moving a node in the DOM never invalidates existing references
+  // to it — same reason _showFreightGenerationResults's pre-captured
+  // checkboxes below never had this problem.
+  const rushEl = content.querySelector("#tt-rush");
+  const resultEl = content.querySelector("#tt-result");
+  const checkTypeEls = Array.from(content.querySelectorAll('input[name="tt-check-type"]'));
   return foundry.applications.api.DialogV2.wait({
     window: { title },
     content,
@@ -114,9 +124,9 @@ function showFindDialog({ title, purposeLabel, checkOptions, starportDM, priorDM
       {
         action: "ok", label: "Attempt Search", default: true,
         callback: () => {
-          const checkType = content.querySelector('input[name="tt-check-type"]:checked')?.value || checkOptions[0].value;
-          const rushed = content.querySelector("#tt-rush").checked;
-          const result = content.querySelector("#tt-result").value;
+          const checkType = checkTypeEls.find(el => el.checked)?.value || checkOptions[0].value;
+          const rushed = rushEl.checked;
+          const result = resultEl.value;
           return result === "" ? null : { checkType, rushed, result: Number(result) };
         }
       },
@@ -146,11 +156,14 @@ function showAutoSearchDialog({ title, viaText, starportDM, priorDM }) {
       <p class="tt-hint">DMs applied: ${dmLines}</p>
       <div class="tt-field tt-field-checkbox"><label><input type="checkbox" id="tt-rush"> Rush the search (DM-2, resolves in 1D6&times;10 hours instead of the normal wait)</label></div>
     </div>`;
+  // Captured up front — see showFindDialog's note on why querying
+  // `content` again inside the button callback isn't reliable.
+  const rushEl = content.querySelector("#tt-rush");
   return foundry.applications.api.DialogV2.wait({
     window: { title },
     content,
     buttons: [
-      { action: "ok", label: "Start Search", default: true, callback: () => ({ rushed: content.querySelector("#tt-rush").checked }) },
+      { action: "ok", label: "Start Search", default: true, callback: () => ({ rushed: rushEl.checked }) },
       { action: "cancel", label: "Cancel", callback: () => null }
     ],
     rejectClose: false

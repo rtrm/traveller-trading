@@ -244,15 +244,28 @@ class GroupFinanceApp extends TradingWindowBase {
         <div class="tt-field"><label>Amount</label><input type="number" id="tt-dlg-amount" min="0"></div>
       </div>`;
     bindCustomSelects(content);
+    // Captured now, before DialogV2 ever renders — querying `content`
+    // again from inside the button callback (i.e. after the dialog has
+    // rendered) turned out unreliable, since DialogV2 restructures/moves
+    // the content it's given internally. A direct reference captured here
+    // keeps working regardless of where the node ends up (moving a node
+    // never invalidates existing references to it); for the custom
+    // dropdown, capturing its wrapper (rather than the currently-selected
+    // option, which changes as the user clicks) and re-querying ".selected"
+    // within that same captured wrapper at callback time still reflects
+    // whatever the user last picked.
+    const typeWrapper = content.querySelector('[data-tt-select-handler="txType"]');
+    const descEl = content.querySelector("#tt-dlg-desc");
+    const amountEl = content.querySelector("#tt-dlg-amount");
     const result = await foundry.applications.api.DialogV2.prompt({
       window: { title: "Add Transaction" },
       content,
       ok: {
         label: "Add",
         callback: () => {
-          const type = content.querySelector('[data-tt-select-handler="txType"] .tt-select-opt.selected')?.dataset.ttSelectOpt || "income";
-          const description = content.querySelector("#tt-dlg-desc").value.trim();
-          const amount = Math.abs(Number(content.querySelector("#tt-dlg-amount").value)) || 0;
+          const type = typeWrapper.querySelector(".tt-select-opt.selected")?.dataset.ttSelectOpt || "income";
+          const description = descEl.value.trim();
+          const amount = Math.abs(Number(amountEl.value)) || 0;
           return { type, description, amount };
         }
       },
@@ -280,16 +293,23 @@ class GroupFinanceApp extends TradingWindowBase {
         <div class="tt-field"><label>Every N days</label><input type="number" id="tt-dlg-period" min="1" value="${existing?.periodDays || 30}"></div>
       </div>`;
     bindCustomSelects(content);
+    // Captured now — see the matching note in _action_add_transaction
+    // above for why querying `content` again inside the callback isn't
+    // reliable.
+    const typeWrapper = content.querySelector('[data-tt-select-handler="recType"]');
+    const descEl = content.querySelector("#tt-dlg-desc");
+    const amountEl = content.querySelector("#tt-dlg-amount");
+    const periodEl = content.querySelector("#tt-dlg-period");
     return foundry.applications.api.DialogV2.prompt({
       window: { title: isEdit ? "Edit Recurring Income or Cost" : "New Group Recurring Income or Cost" },
       content,
       ok: {
         label: isEdit ? "Save" : "Add",
         callback: () => {
-          const type = content.querySelector('[data-tt-select-handler="recType"] .tt-select-opt.selected')?.dataset.ttSelectOpt || "income";
-          const description = content.querySelector("#tt-dlg-desc").value.trim();
-          const amount = Math.abs(Number(content.querySelector("#tt-dlg-amount").value)) || 0;
-          const periodDays = Math.max(1, Number(content.querySelector("#tt-dlg-period").value) || 30);
+          const type = typeWrapper.querySelector(".tt-select-opt.selected")?.dataset.ttSelectOpt || "income";
+          const description = descEl.value.trim();
+          const amount = Math.abs(Number(amountEl.value)) || 0;
+          const periodDays = Math.max(1, Number(periodEl.value) || 30);
           return { type, description, amount, periodDays };
         }
       },
