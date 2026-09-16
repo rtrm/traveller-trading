@@ -204,7 +204,10 @@ class GroupFinanceApp extends TradingWindowBase {
   async _action_open_transaction_log() {
     const url = await getTransactionLogUrl();
     if (!url) { ui.notifications.warn("No transaction log file yet — it's created the first time a transaction is posted."); return; }
-    window.open(url, "_blank");
+    // Cache-busted so reopening the same tab/URL later doesn't show a
+    // stale copy from before the latest write (Forge's CDN and/or the
+    // browser can otherwise cache the exact same URL indefinitely).
+    window.open(`${url}?t=${Date.now()}`, "_blank");
   }
 
   // The session debug log records every dice roll and DM breakdown for
@@ -214,7 +217,7 @@ class GroupFinanceApp extends TradingWindowBase {
   async _action_open_debug_log() {
     const url = await getDebugLogUrl();
     if (!url) { ui.notifications.warn("No session debug log file yet — it's created as soon as the world finishes loading."); return; }
-    window.open(url, "_blank");
+    window.open(`${url}?t=${Date.now()}`, "_blank");
   }
 
   // ---- Add Transaction dialog --------------------------------------------
