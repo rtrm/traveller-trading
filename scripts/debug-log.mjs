@@ -40,6 +40,23 @@ async function uploadBuffer() {
   }
 }
 
+// resetDebugLog/logDebugBlock are called from many places without being
+// awaited (fire-and-forget, by design — nothing should block on a
+// debug-log write). Without this queue, two overlapping calls could each
+// snapshot `buffer` and start uploading, and if the one with the SMALLER
+// snapshot happens to finish its network round-trip second, its upload
+// would silently overwrite the other's larger one — losing whatever was
+// appended in between, which is exactly the "doesn't always seem to
+// update" symptom reported live. Chaining every upload onto this promise
+// guarantees they run one at a time, in call order, each reading `buffer`
+// only once it's actually its turn — so every upload sees everything
+// appended before it, however the underlying network calls happen to land.
+let uploadChain = Promise.resolve();
+function scheduleUpload() {
+  uploadChain = uploadChain.then(() => uploadBuffer());
+  return uploadChain;
+}
+
 // Overwrites the log with a fresh header — called once per session (GM
 // only, at "ready") so this always reflects only the current session's
 // activity, per the design note that this is a debugging aid, not a record.
@@ -47,7 +64,7 @@ export async function resetDebugLog() {
   if (!game.user.isGM) return;
   const when = new Date().toISOString().replace("T", " ").slice(0, 19);
   buffer = `=== Traveller Trading session debug log — started ${when} (game date ${getCampaignDate() || "?"}) ===\n`;
-  await uploadBuffer();
+  await scheduleUpload();
 }
 
 function fmtDM(entry) {
@@ -64,7 +81,7 @@ export async function logDebugBlock(title, lines) {
   const gameDate = getCampaignDate() || "?";
   buffer += `\n--- [${when}] [${gameDate}] ${title} ---\n`;
   for (const line of lines) buffer += `${line}\n`;
-  await uploadBuffer();
+  await scheduleUpload();
 }
 
 export async function getDebugLogUrl() {

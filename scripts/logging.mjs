@@ -75,8 +75,7 @@ function formatLine(t) {
 // is missed by only writing here.
 let knownTransactionIds = null;
 
-async function appendLines(lines) {
-  if (!lines.length) return;
+async function doAppendLines(lines) {
   try {
     await ensureFolder();
     const existing = await readExistingLog();
@@ -87,6 +86,22 @@ async function appendLines(lines) {
   } catch (err) {
     console.warn("Traveller Trading | Could not write to the transaction log file.", err);
   }
+}
+
+// handleFinanceUpdate below fires from the updateJournalEntry hook without
+// being awaited, so two finance updates arriving close together could
+// otherwise both read the same existing remote content, each append their
+// own new lines to that same snapshot, and whichever uploads last would
+// silently discard the other's lines entirely (a genuine lost update, not
+// just reordering — this file re-reads the remote file each time rather
+// than keeping a local buffer). Chaining every append onto this promise
+// serializes the whole read-modify-write cycle, so each one sees the
+// previous one's write before computing its own.
+let appendChain = Promise.resolve();
+function appendLines(lines) {
+  if (!lines.length) return appendChain;
+  appendChain = appendChain.then(() => doAppendLines(lines));
+  return appendChain;
 }
 
 function handleFinanceUpdate(doc) {
