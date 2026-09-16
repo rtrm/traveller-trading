@@ -9,6 +9,7 @@ import { refreshGroupFinanceApp, registerFinanceSettings } from "./finance-app.m
 import { refreshShipApp, closeShipAppIfOpen } from "./ship-app.mjs";
 import { closeTradeMarketAppsIfOpen, checkPendingSupplierSearches } from "./trade-app.mjs";
 import { registerDestinationMapSettings, registerPreferredSectorChoices } from "./destination-map.mjs";
+import { migrateSupplierSearches } from "./supplier-search.mjs";
 
 Hooks.once("init", () => {
   registerTradeGoodsSettings();
@@ -53,7 +54,10 @@ Hooks.once("ready", () => {
   // last open, same approach as the Drinax Tracker's Standing drift.
   if (game.user.isGM) {
     getFinanceDoc().then(doc => { if (doc) processRecurring(doc); });
-    checkPendingSupplierSearches();
+    // Wipe any supplier/buyer/broker search left over from an older search
+    // mechanic BEFORE sweeping for due ones, so nothing resolves under the
+    // wrong rules — see migrateSupplierSearches' own comment.
+    migrateSupplierSearches().then(() => checkPendingSupplierSearches());
   }
 });
 

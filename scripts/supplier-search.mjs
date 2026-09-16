@@ -65,24 +65,23 @@ function rollAutoCheck({ skill, starportDM, priorAttemptDM, rushed }) {
 // Starts a new search of `kind` ("contact" | "broker") for `mode` ("buy" |
 // "sell") on `ship`, mutating it in place (caller saves).
 //
-// For a plain CONTACT search (no broker helping), `playerResult` is the
-// Traveller's own already-DM-adjusted roll total, taken at face value —
-// this module only tells the player what DMs SHOULD apply (via attemptDM/
-// starportSearchDM, read by the caller before showing the dialog), it
-// never does the arithmetic for them.
+// Finding a supplier/buyer (CONTACT) and finding a local broker/fixer
+// (BROKER) are both the Traveller's own check — the core rules literally
+// call this "Finding a Supplier or Broker" as one and the same procedure.
+// `playerResult` is that already-DM-adjusted roll total, taken at face
+// value — this module only tells the player what DMs SHOULD apply (via
+// attemptDM/starportSearchDM, read by the caller before showing the
+// dialog), it never does the arithmetic for them. The found broker's OWN
+// skill (2D/3) is only rolled afterward, in finalizeSearch, once you
+// actually know you found one — it has no bearing on whether the search
+// itself succeeds.
 //
-// For a BROKER search, there's no player check at all: you're not using
-// your own skill to find someone else's business, so this rolls the
-// prospective broker/fixer's own 2D/3 skill FIRST, then auto-rolls against
-// it. The rolled skill is stashed (as `_rolledBrokerSkill`, persisted like
-// any other field) so finalizeSearch can reveal it on success without
-// rolling a second, different skill.
-//
-// A CONTACT search can ALSO be handed to an already-hired local broker —
-// pass their known skill as `brokerSkill` and this auto-rolls against it
-// exactly like a broker search does, just without rolling a fresh skill
-// (it's already known). `playerResult` is ignored whenever `brokerSkill`
-// is given.
+// The ONE exception: a CONTACT search can be handed to an ALREADY-hired
+// local broker instead — pass their known skill as `brokerSkill` and this
+// auto-rolls against it (no player check at all, since they're the one
+// doing the legwork now). `playerResult` is ignored whenever `brokerSkill`
+// is given. This never applies to a BROKER search itself — you always
+// roll your own check to find a broker in the first place.
 //
 // Returns the created record.
 export function startSearch(ship, mode, kind, { checkType, blackMarket, rushed, playerResult, brokerSkill, world, starportDM, priorAttemptDM }) {
@@ -90,13 +89,8 @@ export function startSearch(ship, mode, kind, { checkType, blackMarket, rushed, 
   const wait = rollSearchWait({ checkType, rushed });
   const startedDayIndex = gameDayIndex() ?? 0;
 
-  let success, autoRoll = null, rolledBrokerSkill = null;
-  if (kind === "broker") {
-    const skillRoll = rollLocalBrokerSkill();
-    rolledBrokerSkill = { ...skillRoll, doubleCrosser: !!blackMarket && skillRoll.dice[0] === 1 && skillRoll.dice[1] === 1 };
-    autoRoll = rollAutoCheck({ skill: skillRoll.skill, starportDM, priorAttemptDM, rushed });
-    success = autoRoll.total >= 8;
-  } else if (brokerSkill != null) {
+  let success, autoRoll = null;
+  if (kind === "contact" && brokerSkill != null) {
     autoRoll = rollAutoCheck({ skill: brokerSkill, starportDM, priorAttemptDM, rushed });
     success = autoRoll.total >= 8;
   } else {
@@ -106,7 +100,7 @@ export function startSearch(ship, mode, kind, { checkType, blackMarket, rushed, 
   const record = {
     kind, checkType, blackMarket: !!blackMarket, rushed: !!rushed,
     playerResult: autoRoll ? null : Number(playerResult), autoRoll, success,
-    viaBroker: brokerSkill != null,
+    viaBroker: autoRoll != null,
     starportDM, priorAttemptDM,
     worldKey,
     world: { Name: world?.Name || "", Sector: world?.Sector || "", Hex: world?.Hex || "", UWP: world?.UWP || "", Remarks: world?.Remarks || "", Zone: world?.Zone || "" },
@@ -115,8 +109,7 @@ export function startSearch(ship, mode, kind, { checkType, blackMarket, rushed, 
     status: "searching", resolved: false,
     market: null, priceOffers: null, // contact/buy
     worldCodes: null,                // contact/sell
-    broker: null,                    // broker (revealed only on success — see finalizeSearch)
-    _rolledBrokerSkill: rolledBrokerSkill
+    broker: null                     // broker (rolled and revealed only on success — see finalizeSearch)
   };
   ship.supplierSearches = ship.supplierSearches || {};
   ship.supplierSearches[mode] = ship.supplierSearches[mode] || {};
@@ -174,17 +167,46 @@ export function finalizeSearch(record, ship, mode) {
         for (const [name, offer] of Object.entries(offers)) { logLines.push(`Baseline offer "${name}":`); logLines.push(...fmtPriceOffer(offer)); }
       }
     }
-  } else {
-    logLines.push(`Auto-roll (broker's own skill): 2D6=[${record.autoRoll.dice.join("+")}]=${record.autoRoll.diceSum} + skill ${record.autoRoll.skill} + starport ${record.starportDM >= 0 ? "+" : ""}${record.starportDM} + prior attempts ${record.priorAttemptDM}${record.rushed ? " - 2 (rushed)" : ""} = ${record.autoRoll.total}`);
-    if (record.success) {
-      record.broker = record._rolledBrokerSkill;
-      logLines.push(`Broker/fixer skill: 2D6=[${record.broker.dice.join("+")}]=${record.broker.sum} /3 = ${record.broker.skill}${record.broker.doubleCrosser ? " (natural 2 — possible double-crosser)" : ""}`);
-    }
+  } else if (record.success) {
+    // Found — NOW roll the broker/fixer's own 2D/3 skill (their
+    // competence has no bearing on whether they were found at all, only
+    // on how useful they are once hired).
+    const roll = rollLocalBrokerSkill();
+    record.broker = { ...roll, doubleCrosser: record.blackMarket && roll.dice[0] === 1 && roll.dice[1] === 1 };
+    logLines.push(`Broker/fixer skill: 2D6=[${roll.dice.join("+")}]=${roll.sum} /3 = ${roll.skill}${record.broker.doubleCrosser ? " (natural 2 — possible double-crosser)" : ""}`);
   }
-  delete record._rolledBrokerSkill;
   record.status = record.success ? "found" : "failed";
   record.resolved = true;
   logDebugBlock(`Search resolved: ${purpose} at ${record.world.Name} (${mode})`, logLines);
+}
+
+// Bumped whenever the search mechanic itself changes in a way that makes
+// old persisted records meaningless or misleading under the new rules
+// (e.g. this version: "find a broker" reverted from an always-auto-rolled
+// check back to the Traveller's own roll) — migrateSupplierSearches below
+// wipes ship.supplierSearches once per ship when it sees an older stamp,
+// so nobody's window shows a supplier/broker "found" (or "searching") via
+// the old, now-incorrect mechanic.
+const SEARCH_SCHEMA_VERSION = 2;
+
+// Clears every ship's in-progress/found supplier, buyer, and local broker
+// search state (but NOT the separate "previous attempts this month" DM
+// tracking, which is still valid) if it was written under an older search
+// schema. GM-only; call once at ready and let it no-op on every later
+// call once every ship is stamped current. Returns true if anything
+// changed (caller may want to know, though nothing currently uses it).
+export async function migrateSupplierSearches() {
+  if (!game.user.isGM) return false;
+  let changed = false;
+  for (const doc of getShipDocs()) {
+    const ship = getShipData(doc);
+    if ((ship.supplierSearchSchemaVersion || 0) >= SEARCH_SCHEMA_VERSION) continue;
+    ship.supplierSearches = {};
+    ship.supplierSearchSchemaVersion = SEARCH_SCHEMA_VERSION;
+    await saveShipData(doc, ship);
+    changed = true;
+  }
+  return changed;
 }
 
 // Sweeps every ship for due, unresolved searches and finalizes them —

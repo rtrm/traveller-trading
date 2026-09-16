@@ -126,13 +126,13 @@ function showFindDialog({ title, purposeLabel, checkOptions, starportDM, priorDM
   });
 }
 
-// A lighter dialog for any AUTO-ROLLED search: no check-type or player
-// roll, since the check isn't the Traveller's own skill — it's rolled
-// automatically against a known skill (see supplier-search.mjs's
-// startSearch): the prospective broker/fixer's own 2D/3 skill when finding
-// one, or an already-hired broker's own skill when they're doing the
-// legwork of finding a supplier/buyer instead of the Traveller. Only
-// "rush" is still a player choice.
+// A lighter dialog for the one AUTO-ROLLED search: an already-hired local
+// broker/fixer doing the legwork of finding a supplier/buyer instead of
+// the Traveller — no check-type or player roll, since it's rolled
+// automatically against the broker's own already-known skill (see
+// supplier-search.mjs's startSearch). Only "rush" is still a player
+// choice. Never used for finding the broker itself — that's always the
+// Traveller's own check, same as finding a supplier (showFindDialog).
 function showAutoSearchDialog({ title, viaText, starportDM, priorDM }) {
   const dmLines = [
     `Starport DM: ${starportDM >= 0 ? "+" : ""}${starportDM}`,
@@ -261,10 +261,14 @@ class TradeMarketApp extends TradingWindowBase {
     const purposeLabel = kind === "contact" ? (this.mode === "buy" ? "supplier" : "buyer") : (this.blackMarket ? "fixer" : "local broker");
     const titleLabel = `${purposeLabel[0].toUpperCase()}${purposeLabel.slice(1)}`;
 
-    // If a local broker/fixer has already been found AND "Use this broker"
-    // is checked, THEY do the legwork of finding a supplier/buyer too —
-    // using their own known skill, auto-rolled, no player check. Finding
-    // the broker itself is always auto-rolled regardless (see below).
+    // Finding a supplier/buyer OR a local broker/fixer is ALWAYS the
+    // Traveller's own check — the core rules treat "Finding a Supplier or
+    // Broker" as one and the same procedure, and a found broker's own
+    // skill (rolled afterward, in finalizeSearch) has no bearing on
+    // whether the search itself succeeds. The ONE exception: a CONTACT
+    // search (only) can be handed to an ALREADY-hired local broker/fixer,
+    // who does the legwork automatically using their own known skill —
+    // never applies to finding a broker in the first place.
     let brokerSkill = null;
     if (kind === "contact" && this.useBroker) {
       const brokerRecord = this._relevantRecord(ship, "broker");
@@ -272,17 +276,7 @@ class TradeMarketApp extends TradingWindowBase {
     }
 
     let input;
-    if (kind === "broker") {
-      // No player check — see startSearch's broker branch: this is rolled
-      // automatically using the prospective broker's own skill.
-      const rush = await showAutoSearchDialog({
-        title: `Find a ${titleLabel}`,
-        viaText: `Canvassing the local network for a ${esc(purposeLabel)} — this search is rolled automatically using the prospective ${esc(purposeLabel)}'s own skill, not a player check.`,
-        starportDM, priorDM
-      });
-      if (!rush) return;
-      input = { checkType: this.blackMarket ? "streetwise" : "broker", rushed: rush.rushed, result: null };
-    } else if (brokerSkill != null) {
+    if (brokerSkill != null) {
       const rush = await showAutoSearchDialog({
         title: `Find a ${titleLabel}`,
         viaText: `Your local broker (Broker ${brokerSkill}) is handling this search for you — rolled automatically using their skill, not a player check.`,
@@ -311,7 +305,7 @@ class TradeMarketApp extends TradingWindowBase {
       `Check: ${input.checkType}, rushed: ${input.rushed}`,
       `DMs shown: starport ${starportDM >= 0 ? "+" : ""}${starportDM}, previous attempts ${priorDM}`,
       record.autoRoll
-        ? `Auto-roll (${record.viaBroker ? "local broker's" : "prospective broker's"} skill ${record.autoRoll.skill}): 2D6=[${record.autoRoll.dice.join("+")}]=${record.autoRoll.diceSum} + skill ${record.autoRoll.skill} = ${record.autoRoll.total} -> ${record.success ? "SUCCESS" : "FAILURE"}`
+        ? `Auto-roll (local broker's skill ${record.autoRoll.skill}): 2D6=[${record.autoRoll.dice.join("+")}]=${record.autoRoll.diceSum} + skill ${record.autoRoll.skill} = ${record.autoRoll.total} -> ${record.success ? "SUCCESS" : "FAILURE"}`
         : `Player-reported total: ${input.result} -> ${record.success ? "SUCCESS" : "FAILURE"}`,
       `Wait roll: [${record.waitRolls.join("+")}]${record.rushed ? " x10" : ""} ${record.waitUnit} -> ${record.waitDays} day(s)`
     ]);
