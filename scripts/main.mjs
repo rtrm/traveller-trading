@@ -7,7 +7,7 @@ import { LauncherController } from "./panel.mjs";
 import { getFinanceDoc, processRecurring } from "./data.mjs";
 import { refreshGroupFinanceApp, registerFinanceSettings } from "./finance-app.mjs";
 import { refreshShipApp, closeShipAppIfOpen } from "./ship-app.mjs";
-import { closeTradeMarketAppsIfOpen } from "./trade-app.mjs";
+import { closeTradeMarketAppsIfOpen, checkPendingSupplierSearches } from "./trade-app.mjs";
 import { registerDestinationMapSettings, registerPreferredSectorChoices } from "./destination-map.mjs";
 
 Hooks.once("init", () => {
@@ -35,14 +35,19 @@ Hooks.once("ready", () => {
   // last open, same approach as the Drinax Tracker's Standing drift.
   if (game.user.isGM) {
     getFinanceDoc().then(doc => { if (doc) processRecurring(doc); });
+    checkPendingSupplierSearches();
   }
 });
 
-// Re-check recurring income/costs whenever the GM advances the mgt2e
-// campaign date, so it stays current even if nobody has a window open.
+// Re-check recurring income/costs, plus any due supplier/buyer/broker
+// searches, whenever the GM advances the mgt2e campaign date — so both stay
+// current even if nobody has a window open when the wait concludes.
 Hooks.on("updateSetting", (setting) => {
   if (setting.key === "mgt2e.currentYear" || setting.key === "mgt2e.currentDay") {
-    if (game.user.isGM) getFinanceDoc().then(doc => { if (doc) processRecurring(doc); });
+    if (game.user.isGM) {
+      getFinanceDoc().then(doc => { if (doc) processRecurring(doc); });
+      checkPendingSupplierSearches();
+    }
   }
 });
 

@@ -396,7 +396,7 @@ class ShipApp extends TradingWindowBase {
         </div>
         <div class="tt-panel-box">
           <h3>Speculative Trade</h3>
-          <p class="tt-hint">Buy or sell trade goods at the ship's Current Location (Configuration tab), with prices rolled per the core rules (3D6 + Broker + trade-code DMs).</p>
+          <p class="tt-hint">Buy or sell trade goods at the ship's Current Location (Configuration tab). Find a supplier/buyer first (Average Broker/Streetwise/Online check, per the core rules), then negotiate prices once one's found.</p>
           <div class="tt-inline-row">
             <button type="button" class="tt-btn" data-tt-action="open-buy-goods" ${ship.location ? "" : "disabled"}>Buy Goods</button>
             <button type="button" class="tt-btn tt-btn-ghost" data-tt-action="open-sell-goods" ${ship.location ? "" : "disabled"}>Sell Goods</button>

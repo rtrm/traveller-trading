@@ -5,7 +5,7 @@ import { TRADE_GOODS } from "./constants.mjs";
 // itself depends on destination-map.mjs, which depends on this file for the
 // map tooltip's trade-code breakdown; importing back from travel-roll-utils
 // here would create a three-file import cycle.
-function rollD6() { return 1 + Math.floor(Math.random() * 6); }
+export function rollD6() { return 1 + Math.floor(Math.random() * 6); }
 
 function parseHexDigit(ch) {
   if (!ch) return null;
@@ -186,6 +186,26 @@ export function worldTradeCodes(world) {
   if (world?.Zone === "A") codes.add("AZ");
   if (world?.Zone === "R") codes.add("RZ");
   return codes;
+}
+
+// ---------------------------------------------------------------------------
+// "Find a Supplier" helpers (core rulebook p.241) — the Starport-size bonus
+// and the TL8+ gate for an Online search.
+// ---------------------------------------------------------------------------
+export function worldStarportClass(uwp) {
+  return (uwp || "").trim().charAt(0).toUpperCase() || null;
+}
+
+export function starportSearchDM(starportClass) {
+  if (starportClass === "A") return 6;
+  if (starportClass === "B") return 4;
+  if (starportClass === "C") return 2;
+  return 0;
+}
+
+export function worldTechLevelValue(uwp) {
+  const tlMatch = /-([A-Za-z0-9]+)\s*$/.exec((uwp || "").trim());
+  return tlMatch ? parseHexDigit(tlMatch[1]) : null;
 }
 
 // Splits a UWP string into its labeled components (Starport + the six hex
