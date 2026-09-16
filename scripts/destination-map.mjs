@@ -186,19 +186,25 @@ export function pickLocationCandidate(candidates) {
           ${candidates.map((c, i) => `<div class="tt-tm-result" data-tt-tm-idx="${i}">${esc(c.name)} &mdash; ${esc(c.sector)} ${esc(c.hex)}</div>`).join("")}
         </div>
       </div>`;
+    // DialogV2 stringifies `content` and rebuilds fresh DOM from it, so
+    // `container` (and any listener attached to it) is never actually
+    // shown (confirmed via Foundry's own DialogV2 docs, 2026-09-16) — the
+    // row click listeners must be wired up after render, against the
+    // dialog's own live `.element` instead.
     const dlg = createDialogV2({
       window: { title: "Choose Location" },
       content: container,
       buttons: [{ action: "cancel", label: "Cancel" }],
       rejectClose: false
     }, () => finish(null));
-    container.querySelectorAll("[data-tt-tm-idx]").forEach(el => {
-      el.addEventListener("click", () => {
-        finish(candidates[Number(el.dataset.ttTmIdx)]);
-        dlg.close();
+    dlg.render(true).then(() => {
+      dlg.element.querySelectorAll("[data-tt-tm-idx]").forEach(el => {
+        el.addEventListener("click", () => {
+          finish(candidates[Number(el.dataset.ttTmIdx)]);
+          dlg.close();
+        });
       });
     });
-    dlg.render(true);
   });
 }
 

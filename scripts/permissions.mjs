@@ -68,17 +68,21 @@ export class TravellerTradingPermissionsMenu extends foundry.applications.api.Ap
   async render(options) {
     const content = document.createElement("div");
     content.innerHTML = await buildPermissionsHtml();
-    const checkboxes = content.querySelectorAll("input[type=checkbox][data-doc]");
-    // Resolved via an explicit finish() call made as a side effect from
-    // inside a button's own callback — confirmed live (2026-09-16) that
-    // NEITHER a callback's return value NOR DialogV2's own resolved value
-    // (the plain action string) can be trusted to carry data reliably.
+    // Read from the LIVE rendered form (button.form) inside the button's
+    // own callback, not from this detached `content` element — DialogV2
+    // stringifies `content` and rebuilds fresh DOM from it, so this
+    // element (and the `checkboxes` NodeList queried from it) is never
+    // actually shown or interactive (confirmed via Foundry's own
+    // DialogV2 docs, 2026-09-16).
     createDialogV2({
       window: { title: "Traveller Trading — Permissions" },
       content,
       position: { width: 520 },
       buttons: [
-        { action: "save", icon: "fa-solid fa-check", label: "Save", default: true, callback: () => applyPermissions(checkboxes) },
+        {
+          action: "save", icon: "fa-solid fa-check", label: "Save", default: true,
+          callback: (event, button) => applyPermissions(button.form.querySelectorAll("input[type=checkbox][data-doc]"))
+        },
         { action: "cancel", icon: "fa-solid fa-xmark", label: "Cancel", callback: () => {} }
       ],
       rejectClose: false

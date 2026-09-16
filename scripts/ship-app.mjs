@@ -110,11 +110,11 @@ async function promptQuantity({ title, label, defaultValue, max }) {
         <input type="number" id="tt-dlg-qty" min="0" ${max != null ? `max="${max}"` : ""} value="${defaultValue}">
       </div>
     </div>`;
-  const qtyEl = content.querySelector("#tt-dlg-qty");
-  // Resolved via an explicit finish() call made as a side effect from
-  // inside the button's own callback — confirmed live (2026-09-16) that
-  // NEITHER a callback's return value NOR DialogV2's own resolved value
-  // (the plain action string) can be trusted to carry data reliably.
+  // Read from the LIVE rendered form (button.form) inside the button's
+  // own callback, not from this detached `content` element — DialogV2
+  // stringifies `content` and rebuilds fresh DOM from it, so this element
+  // is never actually shown (confirmed via Foundry's own DialogV2 docs,
+  // 2026-09-16).
   return new Promise(resolve => {
     let resolved = false;
     const finish = (value) => { if (!resolved) { resolved = true; resolve(value); } };
@@ -122,8 +122,15 @@ async function promptQuantity({ title, label, defaultValue, max }) {
       window: { title },
       content,
       buttons: [
-        { action: "ok", label: "Confirm", default: true, callback: () => finish(Math.max(0, Number(qtyEl.value) || 0) || null) },
-        { action: "cancel", label: "Cancel", callback: () => finish(null) }
+        {
+          action: "ok", label: "Confirm", default: true,
+          callback: (event, button) => {
+            const value = Math.max(0, Number(button.form.querySelector("#tt-dlg-qty")?.value) || 0) || null;
+            finish(value);
+            return value;
+          }
+        },
+        { action: "cancel", label: "Cancel", callback: () => { finish(null); return null; } }
       ],
       rejectClose: false
     }, () => finish(null)).render(true);
@@ -544,33 +551,45 @@ class ShipApp extends TradingWindowBase {
             </table>
           </div>
         </div>`;
-      const status = content.querySelector("[data-tt-freight-space-status]");
-      const checkboxes = Array.from(content.querySelectorAll("[data-tt-freight-lot]"));
-      const updateStatus = () => {
-        const used = checkboxes.filter(cb => cb.checked).reduce((s, cb) => s + Number(cb.dataset.tons), 0);
-        if (status) status.textContent = `Selected: ${used} / ${availableSpace} tons`;
-        checkboxes.forEach(cb => {
-          if (!cb.checked) cb.disabled = (used + Number(cb.dataset.tons)) > availableSpace;
-        });
-      };
-      checkboxes.forEach(cb => cb.addEventListener("change", updateStatus));
-      updateStatus();
-
-      createDialogV2({
+      // The running-total/auto-disable behaviour needs listeners on the
+      // ACTUAL rendered checkboxes, not on this detached `content` element
+      // — DialogV2 stringifies `content` and rebuilds fresh DOM from it,
+      // so listeners attached here would never fire (confirmed via
+      // Foundry's own DialogV2 docs, 2026-09-16). Wire them up after
+      // render, against the dialog's own live `.element` instead. Final
+      // selections are read the same way, inside the button's own
+      // callback via `button.form`.
+      const dlg = createDialogV2({
         window: { title: "Generate Freight" },
         content,
         buttons: [
           {
             action: "confirm", label: "Load Selected Freight", default: true,
-            callback: () => {
-              const checked = checkboxes.filter(cb => cb.checked);
-              finish(checked.map(cb => flatLots.find(l => l.key === cb.dataset.key)).filter(Boolean));
+            callback: (event, button) => {
+              const checked = Array.from(button.form.querySelectorAll("[data-tt-freight-lot]")).filter(cb => cb.checked);
+              const value = checked.map(cb => flatLots.find(l => l.key === cb.dataset.key)).filter(Boolean);
+              finish(value);
+              return value;
             }
           },
-          { action: "cancel", label: "Cancel", callback: () => finish(null) }
+          { action: "cancel", label: "Cancel", callback: () => { finish(null); return null; } }
         ],
         rejectClose: false
-      }, () => finish(null)).render(true);
+      }, () => finish(null));
+      dlg.render(true).then(() => {
+        const root = dlg.element;
+        const status = root.querySelector("[data-tt-freight-space-status]");
+        const checkboxes = Array.from(root.querySelectorAll("[data-tt-freight-lot]"));
+        const updateStatus = () => {
+          const used = checkboxes.filter(cb => cb.checked).reduce((s, cb) => s + Number(cb.dataset.tons), 0);
+          if (status) status.textContent = `Selected: ${used} / ${availableSpace} tons`;
+          checkboxes.forEach(cb => {
+            if (!cb.checked) cb.disabled = (used + Number(cb.dataset.tons)) > availableSpace;
+          });
+        };
+        checkboxes.forEach(cb => cb.addEventListener("change", updateStatus));
+        updateStatus();
+      });
     });
   }
 
@@ -980,11 +999,11 @@ class ShipApp extends TradingWindowBase {
           <tbody>${rows}</tbody>
         </table>
       </div>`;
-    const takeEls = Object.fromEntries(PASSENGER_CATEGORIES.map(c => [c.id, content.querySelector(`[data-tt-take="${c.id}"]`)]));
-    // Resolved via an explicit finish() call made as a side effect from
-    // inside a button's own callback — confirmed live (2026-09-16) that
-    // NEITHER a callback's return value NOR DialogV2's own resolved value
-    // (the plain action string) can be trusted to carry data reliably.
+    // Read from the LIVE rendered form (button.form) inside the button's
+    // own callback, not from this detached `content` element — DialogV2
+    // stringifies `content` and rebuilds fresh DOM from it, so this
+    // element is never actually shown (confirmed via Foundry's own
+    // DialogV2 docs, 2026-09-16).
     return new Promise(resolve => {
       let resolved = false;
       const finish = (value) => { if (!resolved) { resolved = true; resolve(value); } };
@@ -994,15 +1013,17 @@ class ShipApp extends TradingWindowBase {
         buttons: [
           {
             action: "confirm", label: "Board Selected Passengers", default: true,
-            callback: () => {
+            callback: (event, button) => {
               const taken = {};
               for (const c of PASSENGER_CATEGORIES) {
-                taken[c.id] = Math.max(0, Math.min(plan[c.id].maxTake, Number(takeEls[c.id]?.value) || 0));
+                const el = button.form.querySelector(`[data-tt-take="${c.id}"]`);
+                taken[c.id] = Math.max(0, Math.min(plan[c.id].maxTake, Number(el?.value) || 0));
               }
               finish(taken);
+              return taken;
             }
           },
-          { action: "cancel", label: "Cancel", callback: () => finish(null) }
+          { action: "cancel", label: "Cancel", callback: () => { finish(null); return null; } }
         ],
         rejectClose: false
       }, () => finish(null)).render(true);

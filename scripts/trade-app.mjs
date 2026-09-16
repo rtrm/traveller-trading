@@ -102,31 +102,14 @@ function showFindDialog({ title, purposeLabel, checkOptions, starportDM, priorDM
       <div class="tt-field tt-field-checkbox"><label><input type="checkbox" id="tt-rush"> Rush the search (DM-2, resolves in 1D6&times;10 hours instead of the normal wait)</label></div>
       <div class="tt-field"><label>Your total (already-modified) check result</label><input type="number" id="tt-result" placeholder="e.g. 9"></div>
     </div>`;
-  // Track field values via live listeners (not by reading them back from
-  // wherever DialogV2 puts the nodes afterward — that turned out
-  // unreliable across several earlier attempts).
-  let checkType = checkOptions[0].value;
-  let rushed = false;
-  let result = "";
-  content.querySelectorAll('input[name="tt-check-type"]').forEach(el => {
-    el.addEventListener("change", () => { if (el.checked) checkType = el.value; });
-  });
-  content.querySelector("#tt-rush").addEventListener("change", (e) => { rushed = e.target.checked; });
-  content.querySelector("#tt-result").addEventListener("input", (e) => { result = e.target.value; });
-
-  // Resolved via an explicit side-effecting finish() call made FROM
-  // INSIDE the button's own callback — never via that callback's return
-  // value, and never via whatever DialogV2.wait()/.prompt() itself
-  // resolves with. Both turned out unreliable in this Foundry version,
-  // confirmed live (2026-09-16) two different ways: a callback's return
-  // value was silently discarded (the promise resolved to the bare
-  // button `action` string instead), and separately the resolved action
-  // string itself wasn't reliably "ok"/"cancel" either. The one thing
-  // that IS confirmed to work, because it's the shape
-  // _showFreightGenerationResults already used successfully: the
-  // callback function itself does run when its button is clicked, so
-  // resolving a Promise this module owns outright, from inside that
-  // callback, sidesteps needing DialogV2 to hand anything back at all.
+  // Values are read from the LIVE rendered form (button.form) inside the
+  // button's own callback, NOT from this detached `content` element or
+  // any listener attached to it — DialogV2 stringifies `content` and
+  // rebuilds fresh DOM from it, so this element and its descendants are
+  // never actually shown; listeners on them never fire (confirmed via
+  // Foundry's own DialogV2 docs, 2026-09-16). All three fields here are
+  // native form controls (radio/checkbox/number) that need no custom JS
+  // to work, so a submit-time read via button.form is all that's needed.
   return new Promise(resolve => {
     let resolved = false;
     const finish = (value) => { if (!resolved) { resolved = true; resolve(value); } };
@@ -136,9 +119,17 @@ function showFindDialog({ title, purposeLabel, checkOptions, starportDM, priorDM
       buttons: [
         {
           action: "ok", label: "Attempt Search", default: true,
-          callback: () => finish(result === "" ? null : { checkType, rushed, result: Number(result) })
+          callback: (event, button) => {
+            const form = button.form;
+            const checkType = form.querySelector('input[name="tt-check-type"]:checked')?.value;
+            const rushed = !!form.querySelector("#tt-rush")?.checked;
+            const resultVal = form.querySelector("#tt-result")?.value ?? "";
+            const value = resultVal === "" ? null : { checkType, rushed, result: Number(resultVal) };
+            finish(value);
+            return value;
+          }
         },
-        { action: "cancel", label: "Cancel", callback: () => finish(null) }
+        { action: "cancel", label: "Cancel", callback: () => { finish(null); return null; } }
       ],
       rejectClose: false
     }, () => finish(null)).render(true);
@@ -165,12 +156,9 @@ function showAutoSearchDialog({ title, viaText, starportDM, priorDM }) {
       <p class="tt-hint">DMs applied: ${dmLines}</p>
       <div class="tt-field tt-field-checkbox"><label><input type="checkbox" id="tt-rush"> Rush the search (DM-2, resolves in 1D6&times;10 hours instead of the normal wait)</label></div>
     </div>`;
-  // Tracked via a live listener; resolved via an explicit finish() call
-  // from inside the button's own callback — see showFindDialog's note on
-  // why neither a callback's return value nor DialogV2's own resolved
-  // value can be relied on at all.
-  let rushed = false;
-  content.querySelector("#tt-rush").addEventListener("change", (e) => { rushed = e.target.checked; });
+  // Read from the LIVE rendered form (button.form) inside the button's
+  // own callback — see showFindDialog's note above on why a listener
+  // attached to this detached `content` element would never fire.
   return new Promise(resolve => {
     let resolved = false;
     const finish = (value) => { if (!resolved) { resolved = true; resolve(value); } };
@@ -178,8 +166,15 @@ function showAutoSearchDialog({ title, viaText, starportDM, priorDM }) {
       window: { title },
       content,
       buttons: [
-        { action: "ok", label: "Start Search", default: true, callback: () => finish({ rushed }) },
-        { action: "cancel", label: "Cancel", callback: () => finish(null) }
+        {
+          action: "ok", label: "Start Search", default: true,
+          callback: (event, button) => {
+            const value = { rushed: !!button.form.querySelector("#tt-rush")?.checked };
+            finish(value);
+            return value;
+          }
+        },
+        { action: "cancel", label: "Cancel", callback: () => { finish(null); return null; } }
       ],
       rejectClose: false
     }, () => finish(null)).render(true);

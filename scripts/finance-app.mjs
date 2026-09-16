@@ -226,13 +226,10 @@ class GroupFinanceApp extends TradingWindowBase {
     // Wrapped in the same "#tt-root" id the sidebar/window content uses —
     // dialog content renders outside any window's own #tt-root, so without
     // it the module's scoped CSS variables and .tt-field/.tt-select rules
-    // would never reach this form. Built as a detached element (rather than
-    // an HTML string) so bindCustomSelects can be wired before DialogV2
-    // ever inserts it into the document — see createDialogV2's own note on
-    // why this sidesteps needing DialogV2's exact render-callback shape.
-    // DialogV2 requires the element passed as `content` itself to have no
-    // attributes ("config.content element must have no attributes"), so
-    // the actual "#tt-root" scoping div is nested one level inside it.
+    // would never reach this form. DialogV2 requires the element passed as
+    // `content` itself to have no attributes ("config.content element must
+    // have no attributes"), so the actual "#tt-root" scoping div is nested
+    // one level inside it.
     const content = document.createElement("div");
     content.innerHTML = `
       <div id="tt-root">
@@ -243,36 +240,41 @@ class GroupFinanceApp extends TradingWindowBase {
         <div class="tt-field"><label>Description</label><input type="text" id="tt-dlg-desc" placeholder="What is this transaction for?"></div>
         <div class="tt-field"><label>Amount</label><input type="number" id="tt-dlg-amount" min="0"></div>
       </div>`;
-    bindCustomSelects(content);
-    // Track field values via live listeners; resolved via an explicit
-    // finish() call made as a side effect from inside the button's own
-    // callback — confirmed live (2026-09-16) that NEITHER a callback's
-    // return value NOR DialogV2's own resolved value (the plain action
-    // string) can be trusted to carry data reliably.
-    let type = "income";
-    const typeWrapper = content.querySelector('[data-tt-select-handler="txType"]');
-    typeWrapper.addEventListener("click", (e) => {
-      const opt = e.target.closest("[data-tt-select-opt]");
-      if (opt) type = opt.dataset.ttSelectOpt;
-    });
-    const descEl = content.querySelector("#tt-dlg-desc");
-    const amountEl = content.querySelector("#tt-dlg-amount");
-    const clicked = await new Promise(resolve => {
+    // DialogV2 stringifies `content` and rebuilds fresh DOM from it, so
+    // this detached element is never actually shown — binding the custom
+    // dropdown's click behaviour here would never fire (confirmed via
+    // Foundry's own DialogV2 docs, 2026-09-16). It's bound instead, below,
+    // against the dialog's own live `.element` once it's actually
+    // rendered. Plain field values are read the same way, inside the
+    // button's own callback via `button.form`.
+    const result = await new Promise(resolve => {
       let resolved = false;
       const finish = (value) => { if (!resolved) { resolved = true; resolve(value); } };
-      createDialogV2({
+      const dlg = createDialogV2({
         window: { title: "Add Transaction" },
         content,
         buttons: [
-          { action: "ok", label: "Add", default: true, callback: () => finish(true) },
-          { action: "cancel", label: "Cancel", callback: () => finish(false) }
+          {
+            action: "ok", label: "Add", default: true,
+            callback: (event, button) => {
+              const form = button.form;
+              const value = {
+                type: form.querySelector('[data-tt-select-handler="txType"] .tt-select-opt.selected')?.dataset.ttSelectOpt || "income",
+                description: form.querySelector("#tt-dlg-desc")?.value.trim() || "",
+                amount: Math.abs(Number(form.querySelector("#tt-dlg-amount")?.value)) || 0
+              };
+              finish(value);
+              return value;
+            }
+          },
+          { action: "cancel", label: "Cancel", callback: () => { finish(null); return null; } }
         ],
         rejectClose: false
-      }, () => finish(false)).render(true);
+      }, () => finish(null));
+      dlg.render(true).then(() => bindCustomSelects(dlg.element));
     });
-    if (!clicked) return;
-    const description = descEl.value.trim();
-    const amount = Math.abs(Number(amountEl.value)) || 0;
+    if (!result) return;
+    const { type, description, amount } = result;
     if (!description || !amount) { ui.notifications.warn("Enter both an amount and a description."); return; }
     const signed = type === "payment" ? -amount : amount;
     await postTransaction(this.doc, { amount: signed, description, source: "manual" });
@@ -293,39 +295,40 @@ class GroupFinanceApp extends TradingWindowBase {
         <div class="tt-field"><label>Amount</label><input type="number" id="tt-dlg-amount" min="0" value="${existing ? Math.abs(existing.amount) : ""}"></div>
         <div class="tt-field"><label>Every N days</label><input type="number" id="tt-dlg-period" min="1" value="${existing?.periodDays || 30}"></div>
       </div>`;
-    bindCustomSelects(content);
-    // Track field values via live listeners; resolved via an explicit
-    // finish() call made as a side effect from inside the button's own
-    // callback — see the matching note in _action_add_transaction above
-    // for why neither a callback's return value nor DialogV2's own
-    // resolved value can be relied on at all.
-    let type = existing?.type || "income";
-    const typeWrapper = content.querySelector('[data-tt-select-handler="recType"]');
-    typeWrapper.addEventListener("click", (e) => {
-      const opt = e.target.closest("[data-tt-select-opt]");
-      if (opt) type = opt.dataset.ttSelectOpt;
-    });
-    const descEl = content.querySelector("#tt-dlg-desc");
-    const amountEl = content.querySelector("#tt-dlg-amount");
-    const periodEl = content.querySelector("#tt-dlg-period");
-    const clicked = await new Promise(resolve => {
+    // DialogV2 stringifies `content` and rebuilds fresh DOM from it, so
+    // this detached element is never actually shown — see the matching
+    // note in _action_add_transaction above. The custom dropdown is bound
+    // against the dialog's own live `.element` once actually rendered;
+    // plain field values are read inside the button's own callback via
+    // `button.form`.
+    const result = await new Promise(resolve => {
       let resolved = false;
       const finish = (value) => { if (!resolved) { resolved = true; resolve(value); } };
-      createDialogV2({
+      const dlg = createDialogV2({
         window: { title: isEdit ? "Edit Recurring Income or Cost" : "New Group Recurring Income or Cost" },
         content,
         buttons: [
-          { action: "ok", label: isEdit ? "Save" : "Add", default: true, callback: () => finish(true) },
-          { action: "cancel", label: "Cancel", callback: () => finish(false) }
+          {
+            action: "ok", label: isEdit ? "Save" : "Add", default: true,
+            callback: (event, button) => {
+              const form = button.form;
+              const value = {
+                type: form.querySelector('[data-tt-select-handler="recType"] .tt-select-opt.selected')?.dataset.ttSelectOpt || "income",
+                description: form.querySelector("#tt-dlg-desc")?.value.trim() || "",
+                amount: Math.abs(Number(form.querySelector("#tt-dlg-amount")?.value)) || 0,
+                periodDays: Math.max(1, Number(form.querySelector("#tt-dlg-period")?.value) || 30)
+              };
+              finish(value);
+              return value;
+            }
+          },
+          { action: "cancel", label: "Cancel", callback: () => { finish(null); return null; } }
         ],
         rejectClose: false
-      }, () => finish(false)).render(true);
+      }, () => finish(null));
+      dlg.render(true).then(() => bindCustomSelects(dlg.element));
     });
-    if (!clicked) return null;
-    const description = descEl.value.trim();
-    const amount = Math.abs(Number(amountEl.value)) || 0;
-    const periodDays = Math.max(1, Number(periodEl.value) || 30);
-    return { type, description, amount, periodDays };
+    return result;
   }
 
   async _action_add_group_recurring() {

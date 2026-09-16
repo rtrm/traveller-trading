@@ -52,18 +52,28 @@ export function bindCustomSelects(root) {
   });
 }
 
-// A safe wrapper around DialogV2 for custom multi-button dialogs whose
-// content needs live-wired listeners before the user can interact with it
-// (e.g. clicking a result row, not just a submit button). `content` should
-// be built as a detached HTMLElement with any such listeners already
-// attached — a detached node's listeners still fire normally once Foundry
-// inserts it into the document, which sidesteps needing to know DialogV2's
-// exact `render` callback signature. `onDismiss` fires exactly once however
-// the dialog closes (a button, the window's own close control, or a caller
-// explicitly calling dlg.close() after a listener already resolved
-// something) — DialogV2 doesn't document a config-level close callback the
-// way v1's Dialog did, so this patches the returned instance's own close()
-// instead of depending on one.
+// A safe wrapper around DialogV2 for custom multi-button dialogs.
+// IMPORTANT (confirmed via Foundry's own DialogV2 docs, 2026-09-16, after
+// several rounds of live-tested "fixes" that didn't hold up): a `content`
+// HTMLElement passed here gets STRINGIFIED by DialogV2 and reinserted as
+// brand-new DOM — it is never the actual live node. Any listener attached
+// to `content` (or its descendants) BEFORE calling this function is
+// attached to a node that never appears on screen and will never fire.
+// Native form controls (checkboxes/radios that don't need custom JS to
+// toggle) are fine either way — just read their live value from
+// `button.form` inside a button's own `callback` (which DOES run against
+// the real rendered form). But anything needing custom interactivity
+// (click-to-select dropdowns, a checkbox whose change should update other
+// elements) must be wired up AFTER render, against the real DOM: call
+// `.render(true)` on the returned instance, then attach listeners to
+// `dlg.element` once that promise resolves — see `_showFreightGenerationResults`
+// (ship-app.mjs) and the group-recurring/add-transaction dialogs
+// (finance-app.mjs) for worked examples of both patterns.
+// `onDismiss` fires exactly once however the dialog closes (a button, the
+// window's own close control, or a caller explicitly calling dlg.close()
+// after a listener already resolved something) — DialogV2 doesn't
+// document a config-level close callback the way v1's Dialog did, so this
+// patches the returned instance's own close() instead of depending on one.
 export function createDialogV2(config, onDismiss) {
   const dlg = new foundry.applications.api.DialogV2(config);
   if (onDismiss) {

@@ -77,11 +77,11 @@ export class LauncherController {
     const label = isStorage ? "storage location" : "starship";
     const content = document.createElement("div");
     content.innerHTML = `<div class="tt-field"><label>Name of the ${label}</label><input type="text" id="tt-new-name" placeholder="e.g. ${isStorage ? "Warehouse 7" : "Far Trader"}"></div>`;
-    const nameEl = content.querySelector("#tt-new-name");
-    // Resolved via an explicit finish() call made as a side effect from
-    // inside a button's own callback — confirmed live (2026-09-16) that
-    // NEITHER a callback's return value NOR DialogV2's own resolved value
-    // (the plain action string) can be trusted to carry data reliably.
+    // Read from the LIVE rendered form (button.form) inside the button's
+    // own callback, not from this detached `content` element — DialogV2
+    // stringifies `content` and rebuilds fresh DOM from it, so this
+    // element is never actually shown (confirmed via Foundry's own
+    // DialogV2 docs, 2026-09-16).
     const name = await new Promise(resolve => {
       let resolved = false;
       const finish = (value) => { if (!resolved) { resolved = true; resolve(value); } };
@@ -89,8 +89,15 @@ export class LauncherController {
         window: { title: `Add ${isStorage ? "Storage" : "Starship"}` },
         content,
         buttons: [
-          { action: "ok", label: "Add", default: true, callback: () => finish(nameEl.value.trim()) },
-          { action: "cancel", label: "Cancel", callback: () => finish(null) }
+          {
+            action: "ok", label: "Add", default: true,
+            callback: (event, button) => {
+              const value = button.form.querySelector("#tt-new-name")?.value.trim() || null;
+              finish(value);
+              return value;
+            }
+          },
+          { action: "cancel", label: "Cancel", callback: () => { finish(null); return null; } }
         ],
         rejectClose: false
       }, () => finish(null)).render(true);
