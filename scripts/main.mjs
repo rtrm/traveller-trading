@@ -15,6 +15,24 @@ Hooks.once("init", () => {
   registerPermissionsSettings();
   registerDestinationMapSettings();
   registerFinanceSettings();
+
+  // "Use Standard Foundry Styling" — off by default, so nothing changes for
+  // existing worlds until a GM opts in. Read via window-base.mjs's
+  // standardLookEnabled() by every window's own _onRender, and applied here
+  // to the sidebar launcher (which isn't a window at all, just a controller
+  // mounted into Foundry's own sidebar DOM) on change.
+  game.settings.register(MODULE_ID, "standardLook", {
+    name: "Use Standard Foundry Styling",
+    hint: "Replace this module's custom dark/gold theme with Foundry's own default window/button styling.",
+    scope: "world",
+    config: true,
+    type: Boolean,
+    default: false,
+    onChange: (value) => {
+      const controller = game.modules.get(MODULE_ID)?.controller;
+      controller?.root?.classList.toggle("tt-standard-look", !!value);
+    }
+  });
 });
 
 Hooks.once("ready", () => {

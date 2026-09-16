@@ -70,15 +70,12 @@ function transactionSourceLabel(source) {
 }
 
 class GroupFinanceApp extends TradingWindowBase {
-  static get defaultOptions() {
-    return foundry.utils.mergeObject(super.defaultOptions, {
-      id: "tt-finance-app",
-      classes: ["traveller-trading-window"],
-      width: 680,
-      height: 680,
-      resizable: true
-    });
-  }
+  static DEFAULT_OPTIONS = {
+    id: "tt-finance-app",
+    classes: ["traveller-trading-window"],
+    window: { resizable: true },
+    position: { width: 680, height: 680 }
+  };
 
   get title() {
     const date = formatGameDate(getCampaignDate());
@@ -163,7 +160,7 @@ class GroupFinanceApp extends TradingWindowBase {
     // Application only reads the title getter when the outer chrome first
     // renders; patch the header text directly so the date shown there stays
     // current without a disruptive full re-render.
-    const titleEl = this.element?.[0]?.querySelector(".window-title");
+    const titleEl = this.element?.querySelector(".window-title");
     if (titleEl) titleEl.textContent = this.title;
 
     if (!this.doc) { this.root.innerHTML = `<p class="tt-empty">Group Finance hasn't been set up yet.</p>`; return; }
@@ -224,29 +221,34 @@ class GroupFinanceApp extends TradingWindowBase {
   async _action_add_transaction() {
     if (!canEdit(this.doc)) { ui.notifications.warn("You don't have permission to edit Group Finance."); return; }
     // Wrapped in the same "#tt-root" id the sidebar/window content uses —
-    // Dialog content renders outside any window's own #tt-root, so without
+    // dialog content renders outside any window's own #tt-root, so without
     // it the module's scoped CSS variables and .tt-field/.tt-select rules
-    // would never reach this form.
-    const content = `
-      <div id="tt-root">
-        <div class="tt-field">
-          <label>Type</label>
-          ${customSelectHtml("txType", [{ value: "income", label: "Income" }, { value: "payment", label: "Payment" }], "income")}
-        </div>
-        <div class="tt-field"><label>Description</label><input type="text" id="tt-dlg-desc" placeholder="What is this transaction for?"></div>
-        <div class="tt-field"><label>Amount</label><input type="number" id="tt-dlg-amount" min="0"></div>
-      </div>`;
-    const result = await Dialog.prompt({
-      title: "Add Transaction",
+    // would never reach this form. Built as a detached element (rather than
+    // an HTML string) so bindCustomSelects can be wired before DialogV2
+    // ever inserts it into the document — see createDialogV2's own note on
+    // why this sidesteps needing DialogV2's exact render-callback shape.
+    const content = document.createElement("div");
+    content.id = "tt-root";
+    content.innerHTML = `
+      <div class="tt-field">
+        <label>Type</label>
+        ${customSelectHtml("txType", [{ value: "income", label: "Income" }, { value: "payment", label: "Payment" }], "income")}
+      </div>
+      <div class="tt-field"><label>Description</label><input type="text" id="tt-dlg-desc" placeholder="What is this transaction for?"></div>
+      <div class="tt-field"><label>Amount</label><input type="number" id="tt-dlg-amount" min="0"></div>`;
+    bindCustomSelects(content);
+    const result = await foundry.applications.api.DialogV2.prompt({
+      window: { title: "Add Transaction" },
       content,
-      label: "Add",
-      render: (html) => bindCustomSelects(html[0]),
-      callback: (html) => {
-        const root = html[0];
-        const type = root.querySelector('[data-tt-select-handler="txType"] .tt-select-opt.selected')?.dataset.ttSelectOpt || "income";
-        const description = root.querySelector("#tt-dlg-desc").value.trim();
-        const amount = Math.abs(Number(root.querySelector("#tt-dlg-amount").value)) || 0;
-        return { type, description, amount };
+      ok: {
+        label: "Add",
+        callback: (event, button) => {
+          const form = button.form;
+          const type = form.querySelector('[data-tt-select-handler="txType"] .tt-select-opt.selected')?.dataset.ttSelectOpt || "income";
+          const description = form.querySelector("#tt-dlg-desc").value.trim();
+          const amount = Math.abs(Number(form.querySelector("#tt-dlg-amount").value)) || 0;
+          return { type, description, amount };
+        }
       },
       rejectClose: false
     });
@@ -260,28 +262,30 @@ class GroupFinanceApp extends TradingWindowBase {
   // ---- Group recurring income/cost dialog (add + edit) -------------------
   async _openGroupRecurringDialog(existing) {
     const isEdit = !!existing;
-    const content = `
-      <div id="tt-root">
-        <div class="tt-field">
-          <label>Type</label>
-          ${customSelectHtml("recType", [{ value: "income", label: "Income" }, { value: "cost", label: "Cost" }], existing?.type || "income")}
-        </div>
-        <div class="tt-field"><label>Description</label><input type="text" id="tt-dlg-desc" value="${esc(existing?.description || "")}"></div>
-        <div class="tt-field"><label>Amount</label><input type="number" id="tt-dlg-amount" min="0" value="${existing ? Math.abs(existing.amount) : ""}"></div>
-        <div class="tt-field"><label>Every N days</label><input type="number" id="tt-dlg-period" min="1" value="${existing?.periodDays || 30}"></div>
-      </div>`;
-    return Dialog.prompt({
-      title: isEdit ? "Edit Recurring Income or Cost" : "New Group Recurring Income or Cost",
+    const content = document.createElement("div");
+    content.id = "tt-root";
+    content.innerHTML = `
+      <div class="tt-field">
+        <label>Type</label>
+        ${customSelectHtml("recType", [{ value: "income", label: "Income" }, { value: "cost", label: "Cost" }], existing?.type || "income")}
+      </div>
+      <div class="tt-field"><label>Description</label><input type="text" id="tt-dlg-desc" value="${esc(existing?.description || "")}"></div>
+      <div class="tt-field"><label>Amount</label><input type="number" id="tt-dlg-amount" min="0" value="${existing ? Math.abs(existing.amount) : ""}"></div>
+      <div class="tt-field"><label>Every N days</label><input type="number" id="tt-dlg-period" min="1" value="${existing?.periodDays || 30}"></div>`;
+    bindCustomSelects(content);
+    return foundry.applications.api.DialogV2.prompt({
+      window: { title: isEdit ? "Edit Recurring Income or Cost" : "New Group Recurring Income or Cost" },
       content,
-      label: isEdit ? "Save" : "Add",
-      render: (html) => bindCustomSelects(html[0]),
-      callback: (html) => {
-        const root = html[0];
-        const type = root.querySelector('[data-tt-select-handler="recType"] .tt-select-opt.selected')?.dataset.ttSelectOpt || "income";
-        const description = root.querySelector("#tt-dlg-desc").value.trim();
-        const amount = Math.abs(Number(root.querySelector("#tt-dlg-amount").value)) || 0;
-        const periodDays = Math.max(1, Number(root.querySelector("#tt-dlg-period").value) || 30);
-        return { type, description, amount, periodDays };
+      ok: {
+        label: isEdit ? "Save" : "Add",
+        callback: (event, button) => {
+          const form = button.form;
+          const type = form.querySelector('[data-tt-select-handler="recType"] .tt-select-opt.selected')?.dataset.ttSelectOpt || "income";
+          const description = form.querySelector("#tt-dlg-desc").value.trim();
+          const amount = Math.abs(Number(form.querySelector("#tt-dlg-amount").value)) || 0;
+          const periodDays = Math.max(1, Number(form.querySelector("#tt-dlg-period").value) || 30);
+          return { type, description, amount, periodDays };
+        }
       },
       rejectClose: false
     });
@@ -317,7 +321,7 @@ class GroupFinanceApp extends TradingWindowBase {
 
   async _action_remove_group_recurring(btn) {
     if (!canEdit(this.doc)) return;
-    const ok = await Dialog.confirm({ title: "Remove Recurring Entry", content: "<p>Remove this recurring income or cost? This cannot be undone.</p>" });
+    const ok = await foundry.applications.api.DialogV2.confirm({ window: { title: "Remove Recurring Entry" }, content: "<p>Remove this recurring income or cost? This cannot be undone.</p>" });
     if (!ok) return;
     const data = getFinanceData(this.doc);
     data.recurring = (data.recurring || []).filter(r => r.id !== btn.dataset.id);

@@ -57,11 +57,13 @@ export async function ensureTradeGoods() {
 
 // A settings-menu entry (Configure Settings > Module Settings) that checks
 // for and creates any missing standard trade goods items. Uses the same
-// FormApplication-with-overridden-render trick as the Drinax Tracker's
-// Reset Data menu, since Foundry rejects a settings-menu "type" that isn't a
+// ApplicationV2-with-overridden-render trick as the Drinax Tracker's Reset
+// Data menu, since Foundry rejects a settings-menu "type" that isn't a
 // FormApplication/ApplicationV2 subclass.
-export class TradeGoodsCheckMenu extends FormApplication {
-  async render() {
+export class TradeGoodsCheckMenu extends foundry.applications.api.ApplicationV2 {
+  static DEFAULT_OPTIONS = { id: "tt-trade-goods-check-menu", window: { title: "Check Trade Goods Items" } };
+
+  async render(options) {
     const created = await ensureTradeGoods();
     if (created > 0) {
       ui.notifications.info(`Traveller Trading: created ${created} missing Trade Goods item(s).`);
@@ -70,8 +72,6 @@ export class TradeGoodsCheckMenu extends FormApplication {
     }
     return this;
   }
-
-  async _updateObject() { /* never submitted — render() is fully overridden above */ }
 }
 
 export function registerTradeGoodsSettings() {

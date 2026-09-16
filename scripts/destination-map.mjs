@@ -1,4 +1,4 @@
-import { esc } from "./window-base.mjs";
+import { esc, createDialogV2 } from "./window-base.mjs";
 import { TradingWindowBase } from "./window-base.mjs";
 import { MODULE_ID } from "./constants.mjs";
 import { TRADE_CODES, describeUwp, worldTradeCodes } from "./trade-data.mjs";
@@ -173,27 +173,26 @@ export async function resolveLocation(text) {
 // own copy. Resolves the chosen candidate, or null if cancelled.
 export function pickLocationCandidate(candidates) {
   return new Promise(resolve => {
-    const content = `
-      <div id="tt-root">
-        <p class="tt-hint">Multiple matches — pick one:</p>
-        <div class="tt-tm-results">
-          ${candidates.map((c, i) => `<div class="tt-tm-result" data-tt-tm-idx="${i}">${esc(c.name)} &mdash; ${esc(c.sector)} ${esc(c.hex)}</div>`).join("")}
-        </div>
+    let resolved = false;
+    const finish = (value) => { if (!resolved) { resolved = true; resolve(value); } };
+    const container = document.createElement("div");
+    container.id = "tt-root";
+    container.innerHTML = `
+      <p class="tt-hint">Multiple matches — pick one:</p>
+      <div class="tt-tm-results">
+        ${candidates.map((c, i) => `<div class="tt-tm-result" data-tt-tm-idx="${i}">${esc(c.name)} &mdash; ${esc(c.sector)} ${esc(c.hex)}</div>`).join("")}
       </div>`;
-    const dlg = new Dialog({
-      title: "Choose Location",
-      content,
-      buttons: { cancel: { label: "Cancel", callback: () => resolve(null) } },
-      default: "cancel",
-      render: (html) => {
-        html[0].querySelectorAll("[data-tt-tm-idx]").forEach(el => {
-          el.addEventListener("click", () => {
-            resolve(candidates[Number(el.dataset.ttTmIdx)]);
-            dlg.close();
-          });
-        });
-      },
-      close: () => resolve(null)
+    const dlg = createDialogV2({
+      window: { title: "Choose Location" },
+      content: container,
+      buttons: [{ action: "cancel", label: "Cancel" }],
+      rejectClose: false
+    }, () => finish(null));
+    container.querySelectorAll("[data-tt-tm-idx]").forEach(el => {
+      el.addEventListener("click", () => {
+        finish(candidates[Number(el.dataset.ttTmIdx)]);
+        dlg.close();
+      });
     });
     dlg.render(true);
   });
@@ -310,16 +309,12 @@ class DestinationMapApp extends TradingWindowBase {
     this.zoom = 1;
   }
 
-  static get defaultOptions() {
-    return foundry.utils.mergeObject(super.defaultOptions, {
-      id: "tt-destination-map-app",
-      title: "Choose Destination",
-      classes: ["traveller-trading-window"],
-      width: 780,
-      height: "auto",
-      resizable: true
-    });
-  }
+  static DEFAULT_OPTIONS = {
+    id: "tt-destination-map-app",
+    classes: ["traveller-trading-window"],
+    window: { title: "Choose Destination", resizable: true },
+    position: { width: 780, height: "auto" }
+  };
 
   async close(options) {
     instance = null;
@@ -450,8 +445,8 @@ class DestinationMapApp extends TradingWindowBase {
     this._wireMapInteractions();
   }
 
-  activateListeners(html) {
-    super.activateListeners(html);
+  async _onRender(context, options) {
+    await super._onRender(context, options);
     this.root.addEventListener("change", async (e) => {
       if (e.target.matches("[data-tt-jump-range]")) {
         this.jump = Math.max(0, Math.min(6, Number(e.target.value) || 0));

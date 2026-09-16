@@ -38,6 +38,31 @@
 }
 #tt-root * { box-sizing: border-box; }
 
+/* "Use Standard Foundry Styling" world setting (off by default) — swaps the
+   custom dark/gold theme's CHROME variables (background/panels/borders/
+   text) for CSS system-color keywords (Canvas/CanvasText/Field/etc.),
+   which track the user's actual OS/browser light-dark scheme without
+   hardcoding a second fixed palette or depending on any specific Foundry
+   core CSS variable name. --teal/--red (positive/negative amounts, badges)
+   are left alone — they carry meaning, not just decoration. Also resets
+   every element to the default UI font and a much smaller border radius,
+   so it reads as "plain" rather than themed. */
+#tt-root.tt-standard-look {
+  color-scheme: light dark;
+  --bg: Canvas;
+  --panel: Field;
+  --panel-alt: Field;
+  --border: GrayText;
+  --text: CanvasText;
+  --text-muted: GrayText;
+  --gold: Highlight;
+}
+#tt-root.tt-standard-look * {
+  font-family: inherit !important;
+  border-radius: 3px !important;
+}
+#tt-root.tt-standard-look .tt-mono { font-family: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace !important; }
+
 /* Group Finance / ship windows reuse #tt-root's own padding, so Foundry's
    default .window-content padding would double it up. */
 .traveller-trading-window .window-content { padding: 0; }

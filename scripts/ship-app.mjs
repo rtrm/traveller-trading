@@ -4,8 +4,8 @@ import {
   getCampaignDate, gameDayIndex, uid
 } from "./data.mjs";
 import { PASSENGER_CATEGORIES, passengerCategoryInfo, passengerIncome, RECURRING_COST_PERIODS } from "./constants.mjs";
-import { TradingWindowBase, customSelectHtml, esc, fmtCr } from "./window-base.mjs";
-import { resolveLocation, openDestinationMapApp } from "./destination-map.mjs";
+import { TradingWindowBase, customSelectHtml, esc, fmtCr, createDialogV2 } from "./window-base.mjs";
+import { resolveLocation, openDestinationMapApp, pickLocationCandidate } from "./destination-map.mjs";
 import { generatePassengers } from "./passenger-gen.mjs";
 import { generateFreight, LOT_SIZES } from "./freight-gen.mjs";
 import { addOrMergeCargo, removeCargoQuantity } from "./cargo-utils.mjs";
@@ -109,11 +109,13 @@ async function promptQuantity({ title, label, defaultValue, max }) {
         <input type="number" id="tt-dlg-qty" min="0" ${max != null ? `max="${max}"` : ""} value="${defaultValue}">
       </div>
     </div>`;
-  const result = await Dialog.prompt({
-    title,
+  const result = await foundry.applications.api.DialogV2.prompt({
+    window: { title },
     content,
-    label: "Confirm",
-    callback: (html) => Math.max(0, Number(html[0].querySelector("#tt-dlg-qty").value) || 0),
+    ok: {
+      label: "Confirm",
+      callback: (event, button) => Math.max(0, Number(button.form.querySelector("#tt-dlg-qty").value) || 0)
+    },
     rejectClose: false
   });
   return result || null;
@@ -147,14 +149,11 @@ class ShipApp extends TradingWindowBase {
     this.doc = game.journal.get(docId);
   }
 
-  static get defaultOptions() {
-    return foundry.utils.mergeObject(super.defaultOptions, {
-      classes: ["traveller-trading-window"],
-      width: 680,
-      height: 680,
-      resizable: true
-    });
-  }
+  static DEFAULT_OPTIONS = {
+    classes: ["traveller-trading-window"],
+    window: { resizable: true },
+    position: { width: 680, height: 680 }
+  };
 
   get id() { return `tt-ship-app-${this.docId}`; }
 
@@ -172,8 +171,8 @@ class ShipApp extends TradingWindowBase {
     return super.close(options);
   }
 
-  activateListeners(html) {
-    super.activateListeners(html);
+  async _onRender(context, options) {
+    await super._onRender(context, options);
     this.root.addEventListener("dragenter", (e) => e.preventDefault());
     this.root.addEventListener("dragover", (e) => e.preventDefault());
     this.root.addEventListener("drop", (e) => this._onDrop(e));
@@ -197,7 +196,7 @@ class ShipApp extends TradingWindowBase {
     // Application only reads the title getter when the outer chrome first
     // renders; patch the header text directly so a renamed ship/storage
     // updates its window title without a disruptive full re-render.
-    const titleEl = this.element?.[0]?.querySelector(".window-title");
+    const titleEl = this.element?.querySelector(".window-title");
     if (titleEl) titleEl.textContent = this.title;
     const kind = this.doc.getFlag(MODULE_ID, "kind");
     const isStorage = kind === "storage";
@@ -284,7 +283,7 @@ class ShipApp extends TradingWindowBase {
     if (!candidates.length) { ui.notifications.warn(`Couldn't find "${ship.location}" on Traveller Map.`); return; }
     let origin = candidates[0];
     if (candidates.length > 1) {
-      origin = await this._pickLocationCandidate(candidates);
+      origin = await pickLocationCandidate(candidates);
       if (!origin) return;
     }
     openDestinationMapApp({
@@ -301,36 +300,8 @@ class ShipApp extends TradingWindowBase {
     });
   }
 
-  _pickLocationCandidate(candidates) {
-    return new Promise(resolve => {
-      const content = `
-        <div id="tt-root">
-          <p class="tt-hint">Multiple matches — pick one:</p>
-          <div class="tt-tm-results">
-            ${candidates.map((c, i) => `<div class="tt-tm-result" data-tt-tm-idx="${i}">${esc(c.name)} &mdash; ${esc(c.sector)} ${esc(c.hex)}</div>`).join("")}
-          </div>
-        </div>`;
-      const dlg = new Dialog({
-        title: "Choose Location",
-        content,
-        buttons: { cancel: { label: "Cancel", callback: () => resolve(null) } },
-        default: "cancel",
-        render: (html) => {
-          html[0].querySelectorAll("[data-tt-tm-idx]").forEach(el => {
-            el.addEventListener("click", () => {
-              resolve(candidates[Number(el.dataset.ttTmIdx)]);
-              dlg.close();
-            });
-          });
-        },
-        close: () => resolve(null)
-      });
-      dlg.render(true);
-    });
-  }
-
   async _action_delete_ship() {
-    const ok = await Dialog.confirm({ title: "Delete", content: "<p>Delete this entry? This cannot be undone.</p>" });
+    const ok = await foundry.applications.api.DialogV2.confirm({ window: { title: "Delete" }, content: "<p>Delete this entry? This cannot be undone.</p>" });
     if (!ok) return;
     await deleteShipDoc(this.docId);
     this.close();
@@ -452,7 +423,7 @@ class ShipApp extends TradingWindowBase {
     const freight = ship.freight || [];
     if (!freight.length) return;
     const total = freight.reduce((s, f) => s + (Number(f.fare) || 0), 0);
-    const ok = await Dialog.confirm({ title: "Deliver Freight", content: `<p>Deliver all ${freight.length} freight lot(s) and collect ${fmtCr(total)}?</p>` });
+    const ok = await foundry.applications.api.DialogV2.confirm({ window: { title: "Deliver Freight" }, content: `<p>Deliver all ${freight.length} freight lot(s) and collect ${fmtCr(total)}?</p>` });
     if (!ok) return;
     ship.freight = [];
     await saveShipData(this.doc, ship);
@@ -543,6 +514,8 @@ class ShipApp extends TradingWindowBase {
       (results[sizeId]?.lots || []).forEach((tons, idx) => flatLots.push({ key: `${sizeId}-${idx}`, sizeId, tons }));
     }
     return new Promise(resolve => {
+      let resolved = false;
+      const finish = (value) => { if (!resolved) { resolved = true; resolve(value); } };
       const rows = flatLots.map(lot => `
         <tr>
           <td><input type="checkbox" data-tt-freight-lot data-key="${lot.key}" data-tons="${lot.tons}"></td>
@@ -550,49 +523,44 @@ class ShipApp extends TradingWindowBase {
           <td class="tt-mono">${lot.tons}</td>
           <td class="tt-mono">${fmtCr(lot.tons * ratePerTon)}</td>
         </tr>`).join("");
-      const content = `
-        <div id="tt-root">
-          <p class="tt-hint">${esc(origin.Name || "")} &rarr; ${esc(destination.Name || "")}, ${distanceParsecs} parsec${distanceParsecs === 1 ? "" : "s"}. Rate: ${fmtCr(ratePerTon)}/ton. A lot must be taken whole or not at all.</p>
-          <p class="tt-hint" data-tt-freight-space-status></p>
-          <div style="max-height:320px;overflow-y:auto;">
-            <table class="tt-table">
-              <thead><tr><th></th><th>Lot</th><th>Tons</th><th>Fare</th></tr></thead>
-              <tbody>${rows || `<tr><td colspan="4" class="tt-empty">No freight lots generated.</td></tr>`}</tbody>
-            </table>
-          </div>
+      const content = document.createElement("div");
+      content.id = "tt-root";
+      content.innerHTML = `
+        <p class="tt-hint">${esc(origin.Name || "")} &rarr; ${esc(destination.Name || "")}, ${distanceParsecs} parsec${distanceParsecs === 1 ? "" : "s"}. Rate: ${fmtCr(ratePerTon)}/ton. A lot must be taken whole or not at all.</p>
+        <p class="tt-hint" data-tt-freight-space-status></p>
+        <div style="max-height:320px;overflow-y:auto;">
+          <table class="tt-table">
+            <thead><tr><th></th><th>Lot</th><th>Tons</th><th>Fare</th></tr></thead>
+            <tbody>${rows || `<tr><td colspan="4" class="tt-empty">No freight lots generated.</td></tr>`}</tbody>
+          </table>
         </div>`;
-      const dlg = new Dialog({
-        title: "Generate Freight",
+      const status = content.querySelector("[data-tt-freight-space-status]");
+      const checkboxes = Array.from(content.querySelectorAll("[data-tt-freight-lot]"));
+      const updateStatus = () => {
+        const used = checkboxes.filter(cb => cb.checked).reduce((s, cb) => s + Number(cb.dataset.tons), 0);
+        if (status) status.textContent = `Selected: ${used} / ${availableSpace} tons`;
+        checkboxes.forEach(cb => {
+          if (!cb.checked) cb.disabled = (used + Number(cb.dataset.tons)) > availableSpace;
+        });
+      };
+      checkboxes.forEach(cb => cb.addEventListener("change", updateStatus));
+      updateStatus();
+
+      createDialogV2({
+        window: { title: "Generate Freight" },
         content,
-        buttons: {
-          confirm: {
-            label: "Load Selected Freight",
-            callback: (html) => {
-              const root = html[0];
-              const checked = Array.from(root.querySelectorAll("[data-tt-freight-lot]:checked"));
-              resolve(checked.map(cb => flatLots.find(l => l.key === cb.dataset.key)).filter(Boolean));
+        buttons: [
+          {
+            action: "confirm", label: "Load Selected Freight", default: true,
+            callback: () => {
+              const checked = checkboxes.filter(cb => cb.checked);
+              finish(checked.map(cb => flatLots.find(l => l.key === cb.dataset.key)).filter(Boolean));
             }
           },
-          cancel: { label: "Cancel", callback: () => resolve(null) }
-        },
-        default: "confirm",
-        render: (html) => {
-          const root = html[0];
-          const status = root.querySelector("[data-tt-freight-space-status]");
-          const checkboxes = Array.from(root.querySelectorAll("[data-tt-freight-lot]"));
-          const updateStatus = () => {
-            const used = checkboxes.filter(cb => cb.checked).reduce((s, cb) => s + Number(cb.dataset.tons), 0);
-            if (status) status.textContent = `Selected: ${used} / ${availableSpace} tons`;
-            checkboxes.forEach(cb => {
-              if (!cb.checked) cb.disabled = (used + Number(cb.dataset.tons)) > availableSpace;
-            });
-          };
-          checkboxes.forEach(cb => cb.addEventListener("change", updateStatus));
-          updateStatus();
-        },
-        close: () => resolve(null)
-      });
-      dlg.render(true);
+          { action: "cancel", label: "Cancel", callback: () => finish(null) }
+        ],
+        rejectClose: false
+      }, () => finish(null)).render(true);
     });
   }
 
@@ -840,7 +808,7 @@ class ShipApp extends TradingWindowBase {
     if (!originCandidates.length) { ui.notifications.warn(`Couldn't find "${ship.location}" on Traveller Map.`); return null; }
     let origin = originCandidates[0];
     if (originCandidates.length > 1) {
-      origin = await this._pickLocationCandidate(originCandidates);
+      origin = await pickLocationCandidate(originCandidates);
       if (!origin) return null;
     }
 
@@ -848,7 +816,7 @@ class ShipApp extends TradingWindowBase {
     if (!destCandidates.length) { ui.notifications.warn(`Couldn't find "${ship.destination}" on Traveller Map.`); return null; }
     let destination = destCandidates[0];
     if (destCandidates.length > 1) {
-      destination = await this._pickLocationCandidate(destCandidates);
+      destination = await pickLocationCandidate(destCandidates);
       if (!destination) return null;
     }
     return { origin, destination };
@@ -951,8 +919,8 @@ class ShipApp extends TradingWindowBase {
     if (!canEdit(this.doc)) { ui.notifications.warn("You don't have permission to edit this."); return; }
     const ship = getShipData(this.doc);
     if (!(ship.passengers || []).length) return;
-    const ok = await Dialog.confirm({
-      title: "Disembark All Passengers",
+    const ok = await foundry.applications.api.DialogV2.confirm({
+      window: { title: "Disembark All Passengers" },
       content: "<p>Clear this ship's entire passenger manifest? This frees all berths but does not refund anyone — use Refund first for anyone who shouldn't have been carried.</p>"
     });
     if (!ok) return;
@@ -976,54 +944,50 @@ class ShipApp extends TradingWindowBase {
   // with those totals, or null if cancelled.
   _showPassengerGenerationResults(generation, plan) {
     const { origin, destination, distanceParsecs, results } = generation;
-    return new Promise(resolve => {
-      const rows = PASSENGER_CATEGORIES.map(c => {
-        const r = results[c.id];
-        const fare = passengerIncome(distanceParsecs, c.id);
-        const p = plan[c.id];
-        const upgradeNote = p.upgraded > 0
-          ? `<br><span class="tt-source-name">incl. ${p.upgraded} upgraded to ${passengerCategoryInfo(NEXT_HIGHER_CATEGORY[c.id]).label}</span>`
-          : "";
-        return `
-          <tr>
-            <td><span class="tt-badge" style="color:${c.color}">${c.label}</span></td>
-            <td class="tt-mono">${r.roll} (${r.diceCount}D6)</td>
-            <td class="tt-mono">${r.count}</td>
-            <td class="tt-mono">${p.maxTake}${upgradeNote}</td>
-            <td class="tt-mono">${fmtCr(fare)}</td>
-            <td><input type="number" class="tt-cell-input" data-tt-take="${c.id}" min="0" max="${p.maxTake}" value="${p.maxTake}" style="width:60px;"></td>
-          </tr>`;
-      }).join("");
-      const content = `
-        <div id="tt-root">
-          <p class="tt-hint">${esc(origin.Name || "")} &rarr; ${esc(destination.Name || "")}, ${distanceParsecs} parsec${distanceParsecs === 1 ? "" : "s"}. "Can board" is capped by remaining berths — own category first, then any spare berths one tier up (paying this category's fare).</p>
-          <table class="tt-table">
-            <thead><tr><th>Category</th><th>Roll</th><th>Generated</th><th>Can Board</th><th>Fare</th><th>Take</th></tr></thead>
-            <tbody>${rows}</tbody>
-          </table>
-        </div>`;
-      const dlg = new Dialog({
-        title: "Generate Passengers",
-        content,
-        buttons: {
-          confirm: {
-            label: "Board Selected Passengers",
-            callback: (html) => {
-              const root = html[0];
-              const taken = {};
-              for (const c of PASSENGER_CATEGORIES) {
-                const input = root.querySelector(`[data-tt-take="${c.id}"]`);
-                taken[c.id] = Math.max(0, Math.min(plan[c.id].maxTake, Number(input?.value) || 0));
-              }
-              resolve(taken);
+    const rows = PASSENGER_CATEGORIES.map(c => {
+      const r = results[c.id];
+      const fare = passengerIncome(distanceParsecs, c.id);
+      const p = plan[c.id];
+      const upgradeNote = p.upgraded > 0
+        ? `<br><span class="tt-source-name">incl. ${p.upgraded} upgraded to ${passengerCategoryInfo(NEXT_HIGHER_CATEGORY[c.id]).label}</span>`
+        : "";
+      return `
+        <tr>
+          <td><span class="tt-badge" style="color:${c.color}">${c.label}</span></td>
+          <td class="tt-mono">${r.roll} (${r.diceCount}D6)</td>
+          <td class="tt-mono">${r.count}</td>
+          <td class="tt-mono">${p.maxTake}${upgradeNote}</td>
+          <td class="tt-mono">${fmtCr(fare)}</td>
+          <td><input type="number" class="tt-cell-input" data-tt-take="${c.id}" min="0" max="${p.maxTake}" value="${p.maxTake}" style="width:60px;"></td>
+        </tr>`;
+    }).join("");
+    const content = `
+      <div id="tt-root">
+        <p class="tt-hint">${esc(origin.Name || "")} &rarr; ${esc(destination.Name || "")}, ${distanceParsecs} parsec${distanceParsecs === 1 ? "" : "s"}. "Can board" is capped by remaining berths — own category first, then any spare berths one tier up (paying this category's fare).</p>
+        <table class="tt-table">
+          <thead><tr><th>Category</th><th>Roll</th><th>Generated</th><th>Can Board</th><th>Fare</th><th>Take</th></tr></thead>
+          <tbody>${rows}</tbody>
+        </table>
+      </div>`;
+    return foundry.applications.api.DialogV2.wait({
+      window: { title: "Generate Passengers" },
+      content,
+      buttons: [
+        {
+          action: "confirm", label: "Board Selected Passengers", default: true,
+          callback: (event, button) => {
+            const form = button.form;
+            const taken = {};
+            for (const c of PASSENGER_CATEGORIES) {
+              const input = form.querySelector(`[data-tt-take="${c.id}"]`);
+              taken[c.id] = Math.max(0, Math.min(plan[c.id].maxTake, Number(input?.value) || 0));
             }
-          },
-          cancel: { label: "Cancel", callback: () => resolve(null) }
+            return taken;
+          }
         },
-        default: "confirm",
-        close: () => resolve(null)
-      });
-      dlg.render(true);
+        { action: "cancel", label: "Cancel", callback: () => null }
+      ],
+      rejectClose: false
     });
   }
 
@@ -1064,7 +1028,7 @@ class ShipApp extends TradingWindowBase {
     const ship = getShipData(this.doc);
     const p = (ship.passengers || []).find(x => x.id === btn.dataset.id);
     if (!p || p.refunded) return;
-    const ok = await Dialog.confirm({ title: "Refund Passenger", content: `<p>Refund ${esc(p.name)}'s fare of ${fmtCr(p.income)}?</p>` });
+    const ok = await foundry.applications.api.DialogV2.confirm({ window: { title: "Refund Passenger" }, content: `<p>Refund ${esc(p.name)}'s fare of ${fmtCr(p.income)}?</p>` });
     if (!ok) return;
     p.refunded = true;
     await saveShipData(this.doc, ship);

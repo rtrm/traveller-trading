@@ -37,9 +37,8 @@ async function buildPermissionsHtml() {
     </table>`;
 }
 
-async function applyPermissions(html) {
-  const el = html instanceof jQuery ? html[0] : html;
-  const checkboxes = el.querySelectorAll("input[type=checkbox][data-doc]");
+async function applyPermissions(form) {
+  const checkboxes = form.querySelectorAll("input[type=checkbox][data-doc]");
   const byDoc = new Map();
   checkboxes.forEach(cb => {
     if (!byDoc.has(cb.dataset.doc)) byDoc.set(cb.dataset.doc, {});
@@ -60,32 +59,26 @@ async function applyPermissions(html) {
 // Settings-menu entry replacing the need to use Foundry's own per-document
 // "Configure Permissions" dialog (which requires a right-click context menu
 // that isn't reliably available in every setup). Uses the same
-// FormApplication-with-overridden-render trick as the Drinax Tracker's Reset
+// ApplicationV2-with-overridden-render trick as the Drinax Tracker's Reset
 // Data menu, since Foundry rejects a settings-menu "type" that isn't a
-// FormApplication/ApplicationV2 subclass — the actual UI is a plain Dialog.
-export class TravellerTradingPermissionsMenu extends FormApplication {
-  async render() {
+// FormApplication/ApplicationV2 subclass — the actual UI is a plain DialogV2.
+export class TravellerTradingPermissionsMenu extends foundry.applications.api.ApplicationV2 {
+  static DEFAULT_OPTIONS = { id: "tt-permissions-menu", window: { title: "Traveller Trading — Permissions" } };
+
+  async render(options) {
     const content = await buildPermissionsHtml();
-    new Dialog({
-      title: "Traveller Trading — Permissions",
+    foundry.applications.api.DialogV2.wait({
+      window: { title: "Traveller Trading — Permissions" },
       content,
-      buttons: {
-        save: {
-          icon: '<i class="fa-solid fa-check"></i>',
-          label: "Save",
-          callback: (html) => applyPermissions(html)
-        },
-        cancel: {
-          icon: '<i class="fa-solid fa-xmark"></i>',
-          label: "Cancel"
-        }
-      },
-      default: "save"
-    }, { width: 520 }).render(true);
+      position: { width: 520 },
+      buttons: [
+        { action: "save", icon: "fa-solid fa-check", label: "Save", default: true, callback: (event, button) => applyPermissions(button.form) },
+        { action: "cancel", icon: "fa-solid fa-xmark", label: "Cancel" }
+      ],
+      rejectClose: false
+    });
     return this;
   }
-
-  async _updateObject() { /* never submitted — render() is fully overridden above */ }
 }
 
 export function registerPermissionsSettings() {

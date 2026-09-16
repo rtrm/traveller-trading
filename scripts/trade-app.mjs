@@ -55,12 +55,12 @@ export async function checkPendingSupplierSearches() {
 
     ChatMessage.create({ content: `<div>${message}</div>`, speaker: { alias: "Traveller Trading" } });
     if (game.user.isGM) {
-      new Dialog({
-        title: record.success ? "Search Successful" : "Search Unsuccessful",
+      foundry.applications.api.DialogV2.prompt({
+        window: { title: record.success ? "Search Successful" : "Search Unsuccessful" },
         content: `<div id="tt-root"><p>${message}</p></div>`,
-        buttons: { ok: { label: "OK" } },
-        default: "ok"
-      }).render(true);
+        ok: { label: "OK" },
+        rejectClose: false
+      });
     }
 
     const app = instances.get(`${doc.id}:${mode}`);
@@ -83,44 +83,39 @@ function findTradeGoodItem(name) {
 // box), then reports their own already-DM-adjusted total — this module
 // never does that arithmetic for them, it only tells them what applies.
 function showFindDialog({ title, purposeLabel, checkOptions, starportDM, priorDM }) {
-  return new Promise(resolve => {
-    const dmLines = [
-      `Starport DM: ${starportDM >= 0 ? "+" : ""}${starportDM}`,
-      priorDM ? `Previous attempts here this month: ${priorDM}` : null,
-      `Rushed search (if checked below): -2`
-    ].filter(Boolean).join(" &middot; ");
-    const content = `
-      <div id="tt-root">
-        <p class="tt-hint">Average (8+) check to find a ${esc(purposeLabel)}.</p>
-        <div class="tt-field">
-          <label>Check Type</label>
-          ${checkOptions.map((o, i) => `<label style="display:block;margin-bottom:4px;font-size:12.5px;"><input type="radio" name="tt-check-type" value="${esc(o.value)}" ${i === 0 ? "checked" : ""}> ${esc(o.label)}</label>`).join("")}
-        </div>
-        <p class="tt-hint">DMs to apply: ${dmLines}</p>
-        <div class="tt-field tt-field-checkbox"><label><input type="checkbox" id="tt-rush"> Rush the search (DM-2, resolves in 1D6&times;10 hours instead of the normal wait)</label></div>
-        <div class="tt-field"><label>Your total (already-modified) check result</label><input type="number" id="tt-result" placeholder="e.g. 9"></div>
-      </div>`;
-    const dlg = new Dialog({
-      title,
-      content,
-      buttons: {
-        ok: {
-          label: "Attempt Search",
-          callback: (html) => {
-            const root = html[0];
-            const checkType = root.querySelector('input[name="tt-check-type"]:checked')?.value || checkOptions[0].value;
-            const rushed = root.querySelector("#tt-rush").checked;
-            const result = root.querySelector("#tt-result").value;
-            if (result === "") { resolve(null); return; }
-            resolve({ checkType, rushed, result: Number(result) });
-          }
-        },
-        cancel: { label: "Cancel", callback: () => resolve(null) }
+  const dmLines = [
+    `Starport DM: ${starportDM >= 0 ? "+" : ""}${starportDM}`,
+    priorDM ? `Previous attempts here this month: ${priorDM}` : null,
+    `Rushed search (if checked below): -2`
+  ].filter(Boolean).join(" &middot; ");
+  const content = `
+    <div id="tt-root">
+      <p class="tt-hint">Average (8+) check to find a ${esc(purposeLabel)}.</p>
+      <div class="tt-field">
+        <label>Check Type</label>
+        ${checkOptions.map((o, i) => `<label style="display:block;margin-bottom:4px;font-size:12.5px;"><input type="radio" name="tt-check-type" value="${esc(o.value)}" ${i === 0 ? "checked" : ""}> ${esc(o.label)}</label>`).join("")}
+      </div>
+      <p class="tt-hint">DMs to apply: ${dmLines}</p>
+      <div class="tt-field tt-field-checkbox"><label><input type="checkbox" id="tt-rush"> Rush the search (DM-2, resolves in 1D6&times;10 hours instead of the normal wait)</label></div>
+      <div class="tt-field"><label>Your total (already-modified) check result</label><input type="number" id="tt-result" placeholder="e.g. 9"></div>
+    </div>`;
+  return foundry.applications.api.DialogV2.wait({
+    window: { title },
+    content,
+    buttons: [
+      {
+        action: "ok", label: "Attempt Search", default: true,
+        callback: (event, button) => {
+          const form = button.form;
+          const checkType = form.querySelector('input[name="tt-check-type"]:checked')?.value || checkOptions[0].value;
+          const rushed = form.querySelector("#tt-rush").checked;
+          const result = form.querySelector("#tt-result").value;
+          return result === "" ? null : { checkType, rushed, result: Number(result) };
+        }
       },
-      default: "ok",
-      close: () => resolve(null)
-    });
-    dlg.render(true);
+      { action: "cancel", label: "Cancel", callback: () => null }
+    ],
+    rejectClose: false
   });
 }
 
@@ -129,29 +124,25 @@ function showFindDialog({ title, purposeLabel, checkOptions, starportDM, priorDM
 // automatically using the prospective broker's own 2D/3 skill (see
 // supplier-search.mjs's startSearch). Only "rush" is still a player choice.
 function showBrokerSearchDialog({ title, purposeLabel, starportDM, priorDM }) {
-  return new Promise(resolve => {
-    const dmLines = [
-      `Starport DM: ${starportDM >= 0 ? "+" : ""}${starportDM}`,
-      priorDM ? `Previous attempts here this month: ${priorDM}` : null,
-      `Rushed search (if checked below): -2`
-    ].filter(Boolean).join(" &middot; ");
-    const content = `
-      <div id="tt-root">
-        <p class="tt-hint">Canvassing the local network for a ${esc(purposeLabel)} — this search is rolled automatically using the prospective ${esc(purposeLabel)}'s own skill, not a player check.</p>
-        <p class="tt-hint">DMs applied: ${dmLines}</p>
-        <div class="tt-field tt-field-checkbox"><label><input type="checkbox" id="tt-rush"> Rush the search (DM-2, resolves in 1D6&times;10 hours instead of the normal wait)</label></div>
-      </div>`;
-    const dlg = new Dialog({
-      title,
-      content,
-      buttons: {
-        ok: { label: "Start Search", callback: (html) => resolve({ rushed: html[0].querySelector("#tt-rush").checked }) },
-        cancel: { label: "Cancel", callback: () => resolve(null) }
-      },
-      default: "ok",
-      close: () => resolve(null)
-    });
-    dlg.render(true);
+  const dmLines = [
+    `Starport DM: ${starportDM >= 0 ? "+" : ""}${starportDM}`,
+    priorDM ? `Previous attempts here this month: ${priorDM}` : null,
+    `Rushed search (if checked below): -2`
+  ].filter(Boolean).join(" &middot; ");
+  const content = `
+    <div id="tt-root">
+      <p class="tt-hint">Canvassing the local network for a ${esc(purposeLabel)} — this search is rolled automatically using the prospective ${esc(purposeLabel)}'s own skill, not a player check.</p>
+      <p class="tt-hint">DMs applied: ${dmLines}</p>
+      <div class="tt-field tt-field-checkbox"><label><input type="checkbox" id="tt-rush"> Rush the search (DM-2, resolves in 1D6&times;10 hours instead of the normal wait)</label></div>
+    </div>`;
+  return foundry.applications.api.DialogV2.wait({
+    window: { title },
+    content,
+    buttons: [
+      { action: "ok", label: "Start Search", default: true, callback: (event, button) => ({ rushed: button.form.querySelector("#tt-rush").checked }) },
+      { action: "cancel", label: "Cancel", callback: () => null }
+    ],
+    rejectClose: false
   });
 }
 
@@ -169,14 +160,11 @@ class TradeMarketApp extends TradingWindowBase {
     this.counterpartSkill = 2;
   }
 
-  static get defaultOptions() {
-    return foundry.utils.mergeObject(super.defaultOptions, {
-      classes: ["traveller-trading-window"],
-      width: 880,
-      height: 700,
-      resizable: true
-    });
-  }
+  static DEFAULT_OPTIONS = {
+    classes: ["traveller-trading-window"],
+    window: { resizable: true },
+    position: { width: 880, height: 700 }
+  };
 
   get id() { return `tt-trade-app-${this.mode}-${this.docId}`; }
 
@@ -190,8 +178,8 @@ class TradeMarketApp extends TradingWindowBase {
     return super.close(options);
   }
 
-  activateListeners(html) {
-    super.activateListeners(html);
+  async _onRender(context, options) {
+    await super._onRender(context, options);
     this.root.addEventListener("change", (e) => {
       if (e.target.matches("[data-tt-counterpart-skill]")) {
         this.counterpartSkill = Math.max(0, Number(e.target.value) || 0);
@@ -516,7 +504,7 @@ class TradeMarketApp extends TradingWindowBase {
   }
 
   _renderContent() {
-    const titleEl = this.element?.[0]?.querySelector(".window-title");
+    const titleEl = this.element?.querySelector(".window-title");
     if (titleEl) titleEl.textContent = this.title;
 
     if (!this.doc) { this.root.innerHTML = `<p class="tt-empty">This starship/storage no longer exists.</p>`; return; }

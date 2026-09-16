@@ -1,6 +1,6 @@
 import { MODULE_ID } from "./constants.mjs";
 import { getShipDocs, createShipDoc, deleteShipDoc } from "./data.mjs";
-import { esc } from "./window-base.mjs";
+import { esc, standardLookEnabled } from "./window-base.mjs";
 import { openGroupFinanceApp } from "./finance-app.mjs";
 import { openShipApp, closeShipAppIfOpen } from "./ship-app.mjs";
 
@@ -29,9 +29,10 @@ export class LauncherController {
         <ol class="directory-list" data-tt-launcher-list></ol>
       </div>`;
     this.root = this.host.querySelector("#tt-root");
+    this.root.classList.toggle("tt-standard-look", standardLookEnabled());
     this.root.addEventListener("click", (e) => this._onClick(e));
 
-    new ContextMenu(this.root, ".directory-item[data-tt-open]", [
+    new foundry.applications.ux.ContextMenu(this.root, ".directory-item[data-tt-open]", [
       {
         name: "Delete",
         icon: '<i class="fa-solid fa-trash"></i>',
@@ -42,7 +43,7 @@ export class LauncherController {
         callback: async (li) => {
           const el = li instanceof jQuery ? li[0] : li;
           const id = el.dataset.ttOpen;
-          const ok = await Dialog.confirm({ title: "Delete", content: "<p>Delete this entry? This cannot be undone.</p>" });
+          const ok = await foundry.applications.api.DialogV2.confirm({ window: { title: "Delete" }, content: "<p>Delete this entry? This cannot be undone.</p>" });
           if (!ok) return;
           await deleteShipDoc(id);
           closeShipAppIfOpen(id);
@@ -75,19 +76,14 @@ export class LauncherController {
 
   async _promptAddShip(isStorage) {
     const label = isStorage ? "storage location" : "starship";
-    const name = await new Promise(resolve => {
-      new Dialog({
-        title: `Add ${isStorage ? "Storage" : "Starship"}`,
-        content: `<div class="tt-field"><label>Name of the ${label}</label><input type="text" id="tt-new-name" placeholder="e.g. ${isStorage ? "Warehouse 7" : "Far Trader"}"></div>`,
-        buttons: {
-          ok: {
-            label: "Add",
-            callback: (html) => resolve((html[0] || html).querySelector("#tt-new-name").value.trim())
-          },
-          cancel: { label: "Cancel", callback: () => resolve(null) }
-        },
-        default: "ok"
-      }).render(true);
+    const name = await foundry.applications.api.DialogV2.wait({
+      window: { title: `Add ${isStorage ? "Storage" : "Starship"}` },
+      content: `<div class="tt-field"><label>Name of the ${label}</label><input type="text" id="tt-new-name" placeholder="e.g. ${isStorage ? "Warehouse 7" : "Far Trader"}"></div>`,
+      buttons: [
+        { action: "ok", label: "Add", default: true, callback: (event, button) => button.form.querySelector("#tt-new-name").value.trim() },
+        { action: "cancel", label: "Cancel", callback: () => null }
+      ],
+      rejectClose: false
     });
     if (!name) return;
     const doc = await createShipDoc(name, isStorage);
