@@ -53,24 +53,39 @@ export function rollSearchWait({ checkType, rushed }) {
   return { unit: "days", rolls: [roll], rawHours: roll * 24, waitDays: roll };
 }
 
+// Shared by both auto-rolled cases below: 2D6 + a known skill + the usual
+// Starport/prior-attempt DMs, minus 2 if rushed.
+function rollAutoCheck({ skill, starportDM, priorAttemptDM, rushed }) {
+  const dice = [rollD6(), rollD6()];
+  const diceSum = dice[0] + dice[1];
+  const total = diceSum + skill + starportDM + priorAttemptDM - (rushed ? 2 : 0);
+  return { dice, diceSum, skill, total };
+}
+
 // Starts a new search of `kind` ("contact" | "broker") for `mode` ("buy" |
 // "sell") on `ship`, mutating it in place (caller saves).
 //
-// For a CONTACT search, `playerResult` is the Traveller's own already-DM-
-// adjusted roll total, taken at face value — this module only tells the
-// player what DMs SHOULD apply (via attemptDM/starportSearchDM, read by the
-// caller before showing the dialog), it never does the arithmetic for them.
+// For a plain CONTACT search (no broker helping), `playerResult` is the
+// Traveller's own already-DM-adjusted roll total, taken at face value —
+// this module only tells the player what DMs SHOULD apply (via attemptDM/
+// starportSearchDM, read by the caller before showing the dialog), it
+// never does the arithmetic for them.
 //
 // For a BROKER search, there's no player check at all: you're not using
 // your own skill to find someone else's business, so this rolls the
-// prospective broker/fixer's own 2D/3 skill FIRST, then auto-rolls
-// 2D6 + that skill + the same DMs to determine if a suitable one turns up
-// — `playerResult` is ignored. The rolled skill is stashed (as
-// `_rolledBrokerSkill`, persisted like any other field) so finalizeSearch
-// can reveal it on success without rolling a second, different skill.
+// prospective broker/fixer's own 2D/3 skill FIRST, then auto-rolls against
+// it. The rolled skill is stashed (as `_rolledBrokerSkill`, persisted like
+// any other field) so finalizeSearch can reveal it on success without
+// rolling a second, different skill.
+//
+// A CONTACT search can ALSO be handed to an already-hired local broker —
+// pass their known skill as `brokerSkill` and this auto-rolls against it
+// exactly like a broker search does, just without rolling a fresh skill
+// (it's already known). `playerResult` is ignored whenever `brokerSkill`
+// is given.
 //
 // Returns the created record.
-export function startSearch(ship, mode, kind, { checkType, blackMarket, rushed, playerResult, world, starportDM, priorAttemptDM }) {
+export function startSearch(ship, mode, kind, { checkType, blackMarket, rushed, playerResult, brokerSkill, world, starportDM, priorAttemptDM }) {
   const worldKey = worldKeyFor(world);
   const wait = rollSearchWait({ checkType, rushed });
   const startedDayIndex = gameDayIndex() ?? 0;
@@ -79,18 +94,19 @@ export function startSearch(ship, mode, kind, { checkType, blackMarket, rushed, 
   if (kind === "broker") {
     const skillRoll = rollLocalBrokerSkill();
     rolledBrokerSkill = { ...skillRoll, doubleCrosser: !!blackMarket && skillRoll.dice[0] === 1 && skillRoll.dice[1] === 1 };
-    const dice = [rollD6(), rollD6()];
-    const diceSum = dice[0] + dice[1];
-    const total = diceSum + skillRoll.skill + starportDM + priorAttemptDM - (rushed ? 2 : 0);
-    autoRoll = { dice, diceSum, skill: skillRoll.skill, total };
-    success = total >= 8;
+    autoRoll = rollAutoCheck({ skill: skillRoll.skill, starportDM, priorAttemptDM, rushed });
+    success = autoRoll.total >= 8;
+  } else if (brokerSkill != null) {
+    autoRoll = rollAutoCheck({ skill: brokerSkill, starportDM, priorAttemptDM, rushed });
+    success = autoRoll.total >= 8;
   } else {
     success = Number(playerResult) >= 8;
   }
 
   const record = {
     kind, checkType, blackMarket: !!blackMarket, rushed: !!rushed,
-    playerResult: kind === "broker" ? null : Number(playerResult), autoRoll, success,
+    playerResult: autoRoll ? null : Number(playerResult), autoRoll, success,
+    viaBroker: brokerSkill != null,
     starportDM, priorAttemptDM,
     worldKey,
     world: { Name: world?.Name || "", Sector: world?.Sector || "", Hex: world?.Hex || "", UWP: world?.UWP || "", Remarks: world?.Remarks || "", Zone: world?.Zone || "" },
@@ -117,7 +133,10 @@ export function startSearch(ship, mode, kind, { checkType, blackMarket, rushed, 
 // market). Mutates `record` in place.
 export function finalizeSearch(record, ship, mode) {
   const purpose = record.kind === "contact" ? (mode === "buy" ? "supplier" : "buyer") : (record.blackMarket ? "fixer" : "local broker");
-  const logLines = [`Result: ${record.success ? "SUCCESS" : "FAILURE"} (${record.kind === "broker" ? `auto-roll ${record.autoRoll.total}` : `player-reported ${record.playerResult}`} vs 8+)`];
+  const logLines = [`Result: ${record.success ? "SUCCESS" : "FAILURE"} (${record.autoRoll ? `auto-roll ${record.autoRoll.total}` : `player-reported ${record.playerResult}`} vs 8+)`];
+  if (record.kind === "contact" && record.viaBroker) {
+    logLines.push(`Handled by the local broker (skill ${record.autoRoll.skill}) instead of a player check: 2D6=[${record.autoRoll.dice.join("+")}]=${record.autoRoll.diceSum} + skill ${record.autoRoll.skill} + starport ${record.starportDM >= 0 ? "+" : ""}${record.starportDM} + prior attempts ${record.priorAttemptDM}${record.rushed ? " - 2 (rushed)" : ""} = ${record.autoRoll.total}`);
+  }
 
   if (record.kind === "contact") {
     if (record.success) {
