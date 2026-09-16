@@ -1,6 +1,6 @@
 import { MODULE_ID } from "./constants.mjs";
 import { getShipDocs, createShipDoc, deleteShipDoc } from "./data.mjs";
-import { esc, standardLookEnabled } from "./window-base.mjs";
+import { esc, standardLookEnabled, createDialogV2 } from "./window-base.mjs";
 import { openGroupFinanceApp } from "./finance-app.mjs";
 import { openShipApp, closeShipAppIfOpen } from "./ship-app.mjs";
 
@@ -78,21 +78,23 @@ export class LauncherController {
     const content = document.createElement("div");
     content.innerHTML = `<div class="tt-field"><label>Name of the ${label}</label><input type="text" id="tt-new-name" placeholder="e.g. ${isStorage ? "Warehouse 7" : "Far Trader"}"></div>`;
     const nameEl = content.querySelector("#tt-new-name");
-    // Read nameEl.value only AFTER the dialog resolves, not inside a
-    // button `callback` — confirmed live (2026-09-16) that a callback's
-    // return value is NOT what DialogV2.wait() actually resolves with (it
-    // resolves to a button's plain `action` string regardless), so this
-    // no longer depends on that mechanism at all.
-    const action = await foundry.applications.api.DialogV2.wait({
-      window: { title: `Add ${isStorage ? "Storage" : "Starship"}` },
-      content,
-      buttons: [
-        { action: "ok", label: "Add", default: true },
-        { action: "cancel", label: "Cancel" }
-      ],
-      rejectClose: false
+    // Resolved via an explicit finish() call made as a side effect from
+    // inside a button's own callback — confirmed live (2026-09-16) that
+    // NEITHER a callback's return value NOR DialogV2's own resolved value
+    // (the plain action string) can be trusted to carry data reliably.
+    const name = await new Promise(resolve => {
+      let resolved = false;
+      const finish = (value) => { if (!resolved) { resolved = true; resolve(value); } };
+      createDialogV2({
+        window: { title: `Add ${isStorage ? "Storage" : "Starship"}` },
+        content,
+        buttons: [
+          { action: "ok", label: "Add", default: true, callback: () => finish(nameEl.value.trim()) },
+          { action: "cancel", label: "Cancel", callback: () => finish(null) }
+        ],
+        rejectClose: false
+      }, () => finish(null)).render(true);
     });
-    const name = action === "ok" ? nameEl.value.trim() : null;
     if (!name) return;
     const doc = await createShipDoc(name, isStorage);
     this.refresh();

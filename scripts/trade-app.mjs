@@ -1,6 +1,6 @@
 import { TRADE_GOODS_FOLDER, DEFAULT_ITEM_ICON } from "./constants.mjs";
 import { getFinanceDoc, postTransaction, getShipData, saveShipData, canEdit, gameDayIndex } from "./data.mjs";
-import { TradingWindowBase, esc, fmtCr } from "./window-base.mjs";
+import { TradingWindowBase, esc, fmtCr, createDialogV2 } from "./window-base.mjs";
 import { resolveLocation, pickLocationCandidate } from "./destination-map.mjs";
 import { fetchWorldInfo } from "./travel-roll-utils.mjs";
 import { addOrMergeCargo, removeCargoQuantity, cargoSpaceUsage } from "./cargo-utils.mjs";
@@ -102,19 +102,9 @@ function showFindDialog({ title, purposeLabel, checkOptions, starportDM, priorDM
       <div class="tt-field tt-field-checkbox"><label><input type="checkbox" id="tt-rush"> Rush the search (DM-2, resolves in 1D6&times;10 hours instead of the normal wait)</label></div>
       <div class="tt-field"><label>Your total (already-modified) check result</label><input type="number" id="tt-result" placeholder="e.g. 9"></div>
     </div>`;
-  // Track field values via live listeners rather than reading them back
-  // later — confirmed live (2026-09-16) that a button's `callback` return
-  // value is NOT what DialogV2.wait() actually resolves with: it resolves
-  // to the plain `action` string regardless, so `{checkType, rushed,
-  // result}` was never reaching _runSearch at all (every access on the
-  // string "ok" is undefined, but "ok" itself is truthy, which is exactly
-  // why the "was a supplier actually found" logic kept silently failing
-  // through several earlier fix attempts that all still depended on the
-  // callback's return value being used). This version depends on nothing
-  // but the two most basic, well-established behaviors: a real "change"/
-  // "input" DOM event firing on a real element, and DialogV2.wait()
-  // resolving to a button's plain `action` string when it has no
-  // callback at all.
+  // Track field values via live listeners (not by reading them back from
+  // wherever DialogV2 puts the nodes afterward — that turned out
+  // unreliable across several earlier attempts).
   let checkType = checkOptions[0].value;
   let rushed = false;
   let result = "";
@@ -124,17 +114,34 @@ function showFindDialog({ title, purposeLabel, checkOptions, starportDM, priorDM
   content.querySelector("#tt-rush").addEventListener("change", (e) => { rushed = e.target.checked; });
   content.querySelector("#tt-result").addEventListener("input", (e) => { result = e.target.value; });
 
-  return foundry.applications.api.DialogV2.wait({
-    window: { title },
-    content,
-    buttons: [
-      { action: "ok", label: "Attempt Search", default: true },
-      { action: "cancel", label: "Cancel" }
-    ],
-    rejectClose: false
-  }).then(action => {
-    if (action !== "ok") return null;
-    return result === "" ? null : { checkType, rushed, result: Number(result) };
+  // Resolved via an explicit side-effecting finish() call made FROM
+  // INSIDE the button's own callback — never via that callback's return
+  // value, and never via whatever DialogV2.wait()/.prompt() itself
+  // resolves with. Both turned out unreliable in this Foundry version,
+  // confirmed live (2026-09-16) two different ways: a callback's return
+  // value was silently discarded (the promise resolved to the bare
+  // button `action` string instead), and separately the resolved action
+  // string itself wasn't reliably "ok"/"cancel" either. The one thing
+  // that IS confirmed to work, because it's the shape
+  // _showFreightGenerationResults already used successfully: the
+  // callback function itself does run when its button is clicked, so
+  // resolving a Promise this module owns outright, from inside that
+  // callback, sidesteps needing DialogV2 to hand anything back at all.
+  return new Promise(resolve => {
+    let resolved = false;
+    const finish = (value) => { if (!resolved) { resolved = true; resolve(value); } };
+    createDialogV2({
+      window: { title },
+      content,
+      buttons: [
+        {
+          action: "ok", label: "Attempt Search", default: true,
+          callback: () => finish(result === "" ? null : { checkType, rushed, result: Number(result) })
+        },
+        { action: "cancel", label: "Cancel", callback: () => finish(null) }
+      ],
+      rejectClose: false
+    }, () => finish(null)).render(true);
   });
 }
 
@@ -158,20 +165,25 @@ function showAutoSearchDialog({ title, viaText, starportDM, priorDM }) {
       <p class="tt-hint">DMs applied: ${dmLines}</p>
       <div class="tt-field tt-field-checkbox"><label><input type="checkbox" id="tt-rush"> Rush the search (DM-2, resolves in 1D6&times;10 hours instead of the normal wait)</label></div>
     </div>`;
-  // Tracked via a live listener, then read only after the dialog resolves
-  // to a plain action string — see showFindDialog's note on why a
-  // button's `callback` return value can't be relied on at all.
+  // Tracked via a live listener; resolved via an explicit finish() call
+  // from inside the button's own callback — see showFindDialog's note on
+  // why neither a callback's return value nor DialogV2's own resolved
+  // value can be relied on at all.
   let rushed = false;
   content.querySelector("#tt-rush").addEventListener("change", (e) => { rushed = e.target.checked; });
-  return foundry.applications.api.DialogV2.wait({
-    window: { title },
-    content,
-    buttons: [
-      { action: "ok", label: "Start Search", default: true },
-      { action: "cancel", label: "Cancel" }
-    ],
-    rejectClose: false
-  }).then(action => action === "ok" ? { rushed } : null);
+  return new Promise(resolve => {
+    let resolved = false;
+    const finish = (value) => { if (!resolved) { resolved = true; resolve(value); } };
+    createDialogV2({
+      window: { title },
+      content,
+      buttons: [
+        { action: "ok", label: "Start Search", default: true, callback: () => finish({ rushed }) },
+        { action: "cancel", label: "Cancel", callback: () => finish(null) }
+      ],
+      rejectClose: false
+    }, () => finish(null)).render(true);
+  });
 }
 
 class TradeMarketApp extends TradingWindowBase {

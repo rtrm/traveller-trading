@@ -3,7 +3,7 @@ import {
   getFinanceDoc, getFinanceData, saveFinanceData, postTransaction, canEdit, uid,
   getCampaignDate, gameDayIndex, formatGameDate, dayIndexToGameDate, getShipDocs, getShipData
 } from "./data.mjs";
-import { TradingWindowBase, customSelectHtml, bindCustomSelects, esc, fmtCr } from "./window-base.mjs";
+import { TradingWindowBase, customSelectHtml, bindCustomSelects, esc, fmtCr, createDialogV2 } from "./window-base.mjs";
 import { getTransactionLogUrl } from "./logging.mjs";
 import { getDebugLogUrl } from "./debug-log.mjs";
 
@@ -244,12 +244,11 @@ class GroupFinanceApp extends TradingWindowBase {
         <div class="tt-field"><label>Amount</label><input type="number" id="tt-dlg-amount" min="0"></div>
       </div>`;
     bindCustomSelects(content);
-    // Track field values via live listeners, then read only after the
-    // dialog resolves to a plain action string — confirmed live
-    // (2026-09-16) that a button's `callback` return value is NOT what
-    // DialogV2.prompt()/.wait() actually resolves with (it resolves to
-    // the bare `action`/`ok` string regardless of what the callback
-    // returns), so this no longer depends on that mechanism at all.
+    // Track field values via live listeners; resolved via an explicit
+    // finish() call made as a side effect from inside the button's own
+    // callback — confirmed live (2026-09-16) that NEITHER a callback's
+    // return value NOR DialogV2's own resolved value (the plain action
+    // string) can be trusted to carry data reliably.
     let type = "income";
     const typeWrapper = content.querySelector('[data-tt-select-handler="txType"]');
     typeWrapper.addEventListener("click", (e) => {
@@ -258,11 +257,18 @@ class GroupFinanceApp extends TradingWindowBase {
     });
     const descEl = content.querySelector("#tt-dlg-desc");
     const amountEl = content.querySelector("#tt-dlg-amount");
-    const clicked = await foundry.applications.api.DialogV2.prompt({
-      window: { title: "Add Transaction" },
-      content,
-      ok: { label: "Add" },
-      rejectClose: false
+    const clicked = await new Promise(resolve => {
+      let resolved = false;
+      const finish = (value) => { if (!resolved) { resolved = true; resolve(value); } };
+      createDialogV2({
+        window: { title: "Add Transaction" },
+        content,
+        buttons: [
+          { action: "ok", label: "Add", default: true, callback: () => finish(true) },
+          { action: "cancel", label: "Cancel", callback: () => finish(false) }
+        ],
+        rejectClose: false
+      }, () => finish(false)).render(true);
     });
     if (!clicked) return;
     const description = descEl.value.trim();
@@ -288,10 +294,11 @@ class GroupFinanceApp extends TradingWindowBase {
         <div class="tt-field"><label>Every N days</label><input type="number" id="tt-dlg-period" min="1" value="${existing?.periodDays || 30}"></div>
       </div>`;
     bindCustomSelects(content);
-    // Track field values via live listeners, then read only after the
-    // dialog resolves to a plain action string — see the matching note in
-    // _action_add_transaction above for why a button's `callback` return
-    // value can't be relied on at all.
+    // Track field values via live listeners; resolved via an explicit
+    // finish() call made as a side effect from inside the button's own
+    // callback — see the matching note in _action_add_transaction above
+    // for why neither a callback's return value nor DialogV2's own
+    // resolved value can be relied on at all.
     let type = existing?.type || "income";
     const typeWrapper = content.querySelector('[data-tt-select-handler="recType"]');
     typeWrapper.addEventListener("click", (e) => {
@@ -301,11 +308,18 @@ class GroupFinanceApp extends TradingWindowBase {
     const descEl = content.querySelector("#tt-dlg-desc");
     const amountEl = content.querySelector("#tt-dlg-amount");
     const periodEl = content.querySelector("#tt-dlg-period");
-    const clicked = await foundry.applications.api.DialogV2.prompt({
-      window: { title: isEdit ? "Edit Recurring Income or Cost" : "New Group Recurring Income or Cost" },
-      content,
-      ok: { label: isEdit ? "Save" : "Add" },
-      rejectClose: false
+    const clicked = await new Promise(resolve => {
+      let resolved = false;
+      const finish = (value) => { if (!resolved) { resolved = true; resolve(value); } };
+      createDialogV2({
+        window: { title: isEdit ? "Edit Recurring Income or Cost" : "New Group Recurring Income or Cost" },
+        content,
+        buttons: [
+          { action: "ok", label: isEdit ? "Save" : "Add", default: true, callback: () => finish(true) },
+          { action: "cancel", label: "Cancel", callback: () => finish(false) }
+        ],
+        rejectClose: false
+      }, () => finish(false)).render(true);
     });
     if (!clicked) return null;
     const description = descEl.value.trim();

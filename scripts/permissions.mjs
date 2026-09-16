@@ -1,5 +1,6 @@
 import { MODULE_ID } from "./constants.mjs";
 import { getFinanceDoc, getShipDocs } from "./data.mjs";
+import { createDialogV2 } from "./window-base.mjs";
 
 function esc(s) {
   return (s ?? "").toString().replace(/[&<>"']/g, m => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[m]));
@@ -68,21 +69,20 @@ export class TravellerTradingPermissionsMenu extends foundry.applications.api.Ap
     const content = document.createElement("div");
     content.innerHTML = await buildPermissionsHtml();
     const checkboxes = content.querySelectorAll("input[type=checkbox][data-doc]");
-    // Acted on only AFTER the dialog resolves, not inside a button
-    // `callback` — confirmed live (2026-09-16) that a callback's return
-    // value is NOT what DialogV2.wait() actually resolves with (it
-    // resolves to a button's plain `action` string regardless), so this
-    // no longer depends on that mechanism at all.
-    foundry.applications.api.DialogV2.wait({
+    // Resolved via an explicit finish() call made as a side effect from
+    // inside a button's own callback — confirmed live (2026-09-16) that
+    // NEITHER a callback's return value NOR DialogV2's own resolved value
+    // (the plain action string) can be trusted to carry data reliably.
+    createDialogV2({
       window: { title: "Traveller Trading — Permissions" },
       content,
       position: { width: 520 },
       buttons: [
-        { action: "save", icon: "fa-solid fa-check", label: "Save", default: true },
-        { action: "cancel", icon: "fa-solid fa-xmark", label: "Cancel" }
+        { action: "save", icon: "fa-solid fa-check", label: "Save", default: true, callback: () => applyPermissions(checkboxes) },
+        { action: "cancel", icon: "fa-solid fa-xmark", label: "Cancel", callback: () => {} }
       ],
       rejectClose: false
-    }).then(action => { if (action === "save") applyPermissions(checkboxes); });
+    }, () => {}).render(true);
     return this;
   }
 }
