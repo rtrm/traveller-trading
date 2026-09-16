@@ -8,6 +8,9 @@ import { TradingWindowBase, customSelectHtml, esc, fmtCr } from "./window-base.m
 import { resolveLocation, openDestinationMapApp } from "./destination-map.mjs";
 import { generatePassengers } from "./passenger-gen.mjs";
 import { generateFreight, LOT_SIZES } from "./freight-gen.mjs";
+import { addOrMergeCargo, removeCargoQuantity } from "./cargo-utils.mjs";
+import { openTradeMarketApp } from "./trade-app.mjs";
+import { logDebugBlock } from "./debug-log.mjs";
 
 const RANK = { low: 0, basic: 1, middle: 2, high: 3 };
 const BERTH_RANK_ORDER = ["high", "middle", "basic", "low"]; // top to bottom, for cascading berth allocation
@@ -91,32 +94,6 @@ function claimDrag(dragId) {
   if (!dragId) return;
   claimedDragIds.add(dragId);
   setTimeout(() => claimedDragIds.delete(dragId), 10000);
-}
-
-// Merges a dragged/dropped quantity into an existing cargo row for the same
-// item (matched by its source Item's uuid and current price/ton) rather
-// than piling up a separate row per drop, so the hold's total stays a
-// single accurate line per good.
-function addOrMergeCargo(ship, { itemName, unitValue, img, sourceUuid, quantity }) {
-  ship.cargo = ship.cargo || [];
-  const existing = sourceUuid && ship.cargo.find(c => c.sourceUuid === sourceUuid && Number(c.unitValue) === Number(unitValue));
-  if (existing) {
-    existing.quantity = (Number(existing.quantity) || 0) + quantity;
-    if (img && !existing.img) existing.img = img;
-  } else {
-    ship.cargo.push({ id: uid(), itemName, quantity, unitValue, notes: "", sourceUuid, img: img || DEFAULT_ITEM_ICON });
-  }
-}
-
-// Reduces a cargo row by the given quantity, dropping the row entirely once
-// it hits zero (used both for the "remove" button and for the source side
-// of a cargo transfer).
-function removeCargoQuantity(ship, cargoId, quantity) {
-  ship.cargo = ship.cargo || [];
-  const row = ship.cargo.find(c => c.id === cargoId);
-  if (!row) return;
-  row.quantity = (Number(row.quantity) || 0) - quantity;
-  if (row.quantity <= 0) ship.cargo = ship.cargo.filter(c => c.id !== cargoId);
 }
 
 // A single-field numeric Dialog, wrapped in the shared "#tt-root" id so the
@@ -416,8 +393,25 @@ class ShipApp extends TradingWindowBase {
               ${freight.map(f => this._freightRowHtml(f, editable)).join("") || `<tr><td colspan="6" class="tt-empty">No freight aboard.</td></tr>`}
             </tbody>
           </table>
+        </div>
+        <div class="tt-panel-box">
+          <h3>Speculative Trade</h3>
+          <p class="tt-hint">Buy or sell trade goods at the ship's Current Location (Configuration tab), with prices rolled per the core rules (3D6 + Broker + trade-code DMs).</p>
+          <div class="tt-inline-row">
+            <button type="button" class="tt-btn" data-tt-action="open-buy-goods" ${ship.location ? "" : "disabled"}>Buy Goods</button>
+            <button type="button" class="tt-btn tt-btn-ghost" data-tt-action="open-sell-goods" ${ship.location ? "" : "disabled"}>Sell Goods</button>
+            ${ship.location ? "" : `<span class="tt-source-name">Set a Current Location first.</span>`}
+          </div>
         </div>` : ""}
       </div>`;
+  }
+
+  async _action_open_buy_goods() {
+    openTradeMarketApp({ docId: this.docId, mode: "buy" });
+  }
+
+  async _action_open_sell_goods() {
+    openTradeMarketApp({ docId: this.docId, mode: "sell" });
   }
 
   _freightRowHtml(f, editable) {
@@ -468,6 +462,10 @@ class ShipApp extends TradingWindowBase {
       description: `${ship.name}: Freight delivered (${freight.length} lot${freight.length === 1 ? "" : "s"})`,
       source: `ship:${this.docId}`
     });
+    logDebugBlock(`Freight delivered by ${ship.name}`, [
+      ...freight.map(f => `  ${f.sizeLabel || f.sizeId} ${f.tons}t -> ${f.destination || "?"}: Cr${f.fare}`),
+      `Total: Cr${total}`
+    ]);
     this._renderContent();
   }
 
@@ -492,6 +490,14 @@ class ShipApp extends TradingWindowBase {
       ui.notifications.warn(err.message || "Couldn't generate freight.");
       return;
     }
+
+    logDebugBlock(`Freight generated: ${generation.origin.Name} -> ${generation.destination.Name}`, [
+      `Distance ${generation.distanceParsecs}pc, rate Cr${generation.ratePerTon}/ton`,
+      ...["major", "minor", "incidental"].map(sizeId => {
+        const r = generation.results[sizeId];
+        return `  ${LOT_SIZES[sizeId].label}: roll ${r.roll} -> ${r.diceCount}D6 -> lots [${r.lots.join(", ")}]`;
+      })
+    ]);
 
     const cargoTons = (ship.cargo || []).reduce((s, c) => s + (Number(c.quantity) || 0), 0);
     const freightTons = (ship.freight || []).reduce((s, f) => s + (Number(f.tons) || 0), 0);
@@ -518,6 +524,9 @@ class ShipApp extends TradingWindowBase {
     await saveShipData(this.doc, freshShip);
     const totalTons = selectedLots.reduce((s, l) => s + l.tons, 0);
     ui.notifications.info(`Loaded ${selectedLots.length} freight lot(s), ${totalTons} tons. Payment due on delivery.`);
+    logDebugBlock(`Freight loaded aboard ${freshShip.name}`, [
+      `Lots: ${selectedLots.map(l => `${LOT_SIZES[l.sizeId]?.label || l.sizeId} ${l.tons}t`).join(", ")} = ${totalTons}t total`
+    ]);
     this._renderContent();
   }
 
@@ -867,6 +876,14 @@ class ShipApp extends TradingWindowBase {
       return;
     }
 
+    logDebugBlock(`Passengers generated: ${generation.origin.Name} -> ${generation.destination.Name}`, [
+      `Distance ${generation.distanceParsecs}pc`,
+      ...BERTH_RANK_ORDER.map(cat => {
+        const r = generation.results[cat];
+        return `  ${passengerCategoryInfo(cat).label}: roll ${r.roll} -> ${r.diceCount}D6 -> ${r.count} available`;
+      })
+    ]);
+
     const generatedCounts = Object.fromEntries(BERTH_RANK_ORDER.map(c => [c, generation.results[c].count]));
     const plan = computeBoardingPlan(ship, generatedCounts);
 
@@ -918,6 +935,10 @@ class ShipApp extends TradingWindowBase {
       description: `${freshShip.name}: Passengers boarded (${parts.join(", ")}) - ${originWorld.Name} to ${destWorld.Name}`,
       source: `ship:${this.docId}`
     });
+    logDebugBlock(`Passengers boarded ${freshShip.name}`, [
+      `${parts.join(", ")} - ${originWorld.Name} to ${destWorld.Name}`,
+      `Total income: Cr${totalIncome}`
+    ]);
     this._renderContent();
   }
 

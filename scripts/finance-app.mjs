@@ -5,6 +5,7 @@ import {
 } from "./data.mjs";
 import { TradingWindowBase, customSelectHtml, bindCustomSelects, esc, fmtCr } from "./window-base.mjs";
 import { getTransactionLogUrl } from "./logging.mjs";
+import { getDebugLogUrl } from "./debug-log.mjs";
 
 const DEFAULT_TRANSACTION_LIMIT = 25;
 
@@ -193,7 +194,10 @@ class GroupFinanceApp extends TradingWindowBase {
         <div class="tt-fin-section">
           <div class="tt-inline-row" style="justify-content:space-between;">
             <h3 style="margin:0;">Transactions${allTransactions.length > limit ? ` <span class="tt-source-name">(showing latest ${limit} of ${allTransactions.length})</span>` : ""}</h3>
-            ${game.user.isGM ? `<button type="button" class="tt-btn tt-btn-ghost" data-tt-action="open-transaction-log">Open Transaction Log</button>` : ""}
+            <div class="tt-inline-row">
+              ${game.user.isGM ? `<button type="button" class="tt-btn tt-btn-ghost" data-tt-action="open-transaction-log">Open Transaction Log</button>` : ""}
+              ${game.user.isGM ? `<button type="button" class="tt-btn tt-btn-ghost" data-tt-action="open-debug-log">Open Session Debug Log</button>` : ""}
+            </div>
           </div>
           ${this._transactionsTableHtml(transactions)}
         </div>
@@ -203,6 +207,16 @@ class GroupFinanceApp extends TradingWindowBase {
   async _action_open_transaction_log() {
     const url = await getTransactionLogUrl();
     if (!url) { ui.notifications.warn("No transaction log file yet — it's created the first time a transaction is posted."); return; }
+    window.open(url, "_blank");
+  }
+
+  // The session debug log records every dice roll and DM breakdown for
+  // Freight, Passengers, and Speculative Trade generation — a debugging aid
+  // (overwritten fresh each session), not a permanent record like the
+  // transaction log above.
+  async _action_open_debug_log() {
+    const url = await getDebugLogUrl();
+    if (!url) { ui.notifications.warn("No session debug log file yet — it's created as soon as the world finishes loading."); return; }
     window.open(url, "_blank");
   }
 

@@ -2,10 +2,12 @@ import { MODULE_ID } from "./constants.mjs";
 import { registerTradeGoodsSettings } from "./trade-goods.mjs";
 import { registerPermissionsSettings } from "./permissions.mjs";
 import { registerTransactionLog } from "./logging.mjs";
+import { resetDebugLog } from "./debug-log.mjs";
 import { LauncherController } from "./panel.mjs";
 import { getFinanceDoc, processRecurring } from "./data.mjs";
 import { refreshGroupFinanceApp, registerFinanceSettings } from "./finance-app.mjs";
 import { refreshShipApp, closeShipAppIfOpen } from "./ship-app.mjs";
+import { closeTradeMarketAppsIfOpen } from "./trade-app.mjs";
 import { registerDestinationMapSettings, registerPreferredSectorChoices } from "./destination-map.mjs";
 
 Hooks.once("init", () => {
@@ -27,6 +29,7 @@ Hooks.once("ready", () => {
 
   registerTransactionLog();
   registerPreferredSectorChoices();
+  resetDebugLog();
 
   // Catch up on any recurring income/costs accumulated since the world was
   // last open, same approach as the Drinax Tracker's Standing drift.
@@ -62,6 +65,7 @@ Hooks.on("deleteJournalEntry", (doc) => {
   if (!doc.getFlag(MODULE_ID, "kind")) return;
   refreshLauncher();
   closeShipAppIfOpen(doc.id);
+  closeTradeMarketAppsIfOpen(doc.id);
 });
 
 // ---------------------------------------------------------------------------

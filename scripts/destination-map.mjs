@@ -1,6 +1,7 @@
 import { esc } from "./window-base.mjs";
 import { TradingWindowBase } from "./window-base.mjs";
 import { MODULE_ID } from "./constants.mjs";
+import { TRADE_CODES, describeUwp, worldTradeCodes } from "./trade-data.mjs";
 
 // Traveller Map's own supported milieux (from its /api/milieux endpoint —
 // checked live; this module has no way to keep this list itself in sync if
@@ -163,6 +164,39 @@ export async function resolveLocation(text) {
     console.warn("Traveller Trading | Traveller Map lookup failed", err);
     return [];
   }
+}
+
+// Shared disambiguation dialog for a list of {name, sector, hex} candidates
+// from resolveLocation() — same shape ship-app.mjs's own destination/origin
+// picker dialog uses; exported here so trade-app.mjs (which also resolves a
+// ship's Current Location, for its Buy/Sell Goods windows) doesn't need its
+// own copy. Resolves the chosen candidate, or null if cancelled.
+export function pickLocationCandidate(candidates) {
+  return new Promise(resolve => {
+    const content = `
+      <div id="tt-root">
+        <p class="tt-hint">Multiple matches — pick one:</p>
+        <div class="tt-tm-results">
+          ${candidates.map((c, i) => `<div class="tt-tm-result" data-tt-tm-idx="${i}">${esc(c.name)} &mdash; ${esc(c.sector)} ${esc(c.hex)}</div>`).join("")}
+        </div>
+      </div>`;
+    const dlg = new Dialog({
+      title: "Choose Location",
+      content,
+      buttons: { cancel: { label: "Cancel", callback: () => resolve(null) } },
+      default: "cancel",
+      render: (html) => {
+        html[0].querySelectorAll("[data-tt-tm-idx]").forEach(el => {
+          el.addEventListener("click", () => {
+            resolve(candidates[Number(el.dataset.ttTmIdx)]);
+            dlg.close();
+          });
+        });
+      },
+      close: () => resolve(null)
+    });
+    dlg.render(true);
+  });
 }
 
 export async function fetchJumpWorlds(sector, hex, jump) {
@@ -402,6 +436,7 @@ class DestinationMapApp extends TradingWindowBase {
           data-hex="${esc(world.Hex || "")}"
           data-uwp="${esc(world.UWP || "")}"
           data-remarks="${esc(world.Remarks || "")}"
+          data-zone="${esc(world.Zone || "")}"
           cx="${cx.toFixed(1)}" cy="${cy.toFixed(1)}" r="${(JUMPMAP_SCALE * 0.4).toFixed(1)}"></circle>`;
     }).join("");
 
@@ -530,7 +565,8 @@ class DestinationMapApp extends TradingWindowBase {
            data-sector="${esc(world.Sector || "")}"
            data-hex="${esc(world.Hex || "")}"
            data-uwp="${esc(world.UWP || "")}"
-           data-remarks="${esc(world.Remarks || "")}">
+           data-remarks="${esc(world.Remarks || "")}"
+           data-zone="${esc(world.Zone || "")}">
           <circle cx="${px.x.toFixed(1)}" cy="${px.y.toFixed(1)}" r="${(hexRadius * 0.42).toFixed(1)}" fill="${color}" stroke="${style.bg}" stroke-width="1.5"></circle>
           <text x="${px.x.toFixed(1)}" y="${(px.y + 3).toFixed(1)}" text-anchor="middle" class="tt-map-starport" fill="${style.bg}">${esc(starport)}</text>
           <text x="${px.x.toFixed(1)}" y="${(px.y + hexRadius * 0.85).toFixed(1)}" text-anchor="middle" class="tt-map-label" fill="${isOrigin ? style.origin : style.labelColor}">${esc(world.Name || "")}${isOrigin ? " (current)" : ""}</text>
@@ -545,6 +581,26 @@ class DestinationMapApp extends TradingWindowBase {
       </svg>`;
   }
 
+  // Breaks a hovered system's UWP and Remarks down into labeled fields
+  // (Starport/Size/.../Tech Level, trade codes with their full names, and
+  // the Travel Zone — Amber/Red act as trade codes in their own right for
+  // Advanced Weapons/Vehicles and illegal-goods pricing) rather than
+  // showing the raw UWP/Remarks strings as before.
+  _worldTooltipHtml(dataset) {
+    const uwpParts = describeUwp(dataset.uwp) || [];
+    const world = { UWP: dataset.uwp, Remarks: dataset.remarks, Zone: dataset.zone };
+    const codes = worldTradeCodes(world);
+    const zoneLabel = dataset.zone === "A" ? "Amber" : (dataset.zone === "R" ? "Red" : "Green");
+    const codeList = [...codes].sort().map(c => `${esc(c)} (${esc(TRADE_CODES[c] || c)})`).join(", ") || "none";
+    return `
+      <b>${esc(dataset.name)}</b><br>
+      ${esc(dataset.sector)} ${esc(dataset.hex)}<br>
+      <span class="tt-mono">${esc(dataset.uwp)}</span><br>
+      ${uwpParts.map(p => `${esc(p.label)}: ${esc(p.value)}`).join(" &middot; ")}<br>
+      Zone: ${zoneLabel}<br>
+      Trade codes: ${codeList}`;
+  }
+
   _wireMapInteractions() {
     const svg = this.root.querySelector("[data-tt-map-svg]");
     const tooltip = this.root.querySelector("[data-tt-map-tooltip]");
@@ -553,11 +609,7 @@ class DestinationMapApp extends TradingWindowBase {
     if (!svg || !tooltip) return;
     targets.forEach(g => {
       g.addEventListener("mouseenter", () => {
-        tooltip.innerHTML = `
-          <b>${esc(g.dataset.name)}</b><br>
-          ${esc(g.dataset.sector)} ${esc(g.dataset.hex)}<br>
-          <span class="tt-mono">${esc(g.dataset.uwp)}</span><br>
-          ${esc(g.dataset.remarks)}`;
+        tooltip.innerHTML = this._worldTooltipHtml(g.dataset);
         tooltip.hidden = false;
       });
       g.addEventListener("mousemove", (e) => {
