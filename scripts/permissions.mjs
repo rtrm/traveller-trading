@@ -67,22 +67,22 @@ export class TravellerTradingPermissionsMenu extends foundry.applications.api.Ap
   async render(options) {
     const content = document.createElement("div");
     content.innerHTML = await buildPermissionsHtml();
-    // Captured now — querying `content` again inside the button callback
-    // (after DialogV2 has rendered) turned out unreliable, since DialogV2
-    // restructures/moves the content it's given internally. A direct
-    // reference captured before that happens keeps working regardless of
-    // where the nodes end up.
     const checkboxes = content.querySelectorAll("input[type=checkbox][data-doc]");
+    // Acted on only AFTER the dialog resolves, not inside a button
+    // `callback` — confirmed live (2026-09-16) that a callback's return
+    // value is NOT what DialogV2.wait() actually resolves with (it
+    // resolves to a button's plain `action` string regardless), so this
+    // no longer depends on that mechanism at all.
     foundry.applications.api.DialogV2.wait({
       window: { title: "Traveller Trading — Permissions" },
       content,
       position: { width: 520 },
       buttons: [
-        { action: "save", icon: "fa-solid fa-check", label: "Save", default: true, callback: () => applyPermissions(checkboxes) },
+        { action: "save", icon: "fa-solid fa-check", label: "Save", default: true },
         { action: "cancel", icon: "fa-solid fa-xmark", label: "Cancel" }
       ],
       rejectClose: false
-    });
+    }).then(action => { if (action === "save") applyPermissions(checkboxes); });
     return this;
   }
 }

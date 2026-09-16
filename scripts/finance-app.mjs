@@ -244,37 +244,32 @@ class GroupFinanceApp extends TradingWindowBase {
         <div class="tt-field"><label>Amount</label><input type="number" id="tt-dlg-amount" min="0"></div>
       </div>`;
     bindCustomSelects(content);
-    // Captured now, before DialogV2 ever renders — querying `content`
-    // again from inside the button callback (i.e. after the dialog has
-    // rendered) turned out unreliable, since DialogV2 restructures/moves
-    // the content it's given internally. A direct reference captured here
-    // keeps working regardless of where the node ends up (moving a node
-    // never invalidates existing references to it); for the custom
-    // dropdown, capturing its wrapper (rather than the currently-selected
-    // option, which changes as the user clicks) and re-querying ".selected"
-    // within that same captured wrapper at callback time still reflects
-    // whatever the user last picked.
+    // Track field values via live listeners, then read only after the
+    // dialog resolves to a plain action string — confirmed live
+    // (2026-09-16) that a button's `callback` return value is NOT what
+    // DialogV2.prompt()/.wait() actually resolves with (it resolves to
+    // the bare `action`/`ok` string regardless of what the callback
+    // returns), so this no longer depends on that mechanism at all.
+    let type = "income";
     const typeWrapper = content.querySelector('[data-tt-select-handler="txType"]');
+    typeWrapper.addEventListener("click", (e) => {
+      const opt = e.target.closest("[data-tt-select-opt]");
+      if (opt) type = opt.dataset.ttSelectOpt;
+    });
     const descEl = content.querySelector("#tt-dlg-desc");
     const amountEl = content.querySelector("#tt-dlg-amount");
-    const result = await foundry.applications.api.DialogV2.prompt({
+    const clicked = await foundry.applications.api.DialogV2.prompt({
       window: { title: "Add Transaction" },
       content,
-      ok: {
-        label: "Add",
-        callback: () => {
-          const type = typeWrapper.querySelector(".tt-select-opt.selected")?.dataset.ttSelectOpt || "income";
-          const description = descEl.value.trim();
-          const amount = Math.abs(Number(amountEl.value)) || 0;
-          return { type, description, amount };
-        }
-      },
+      ok: { label: "Add" },
       rejectClose: false
     });
-    if (!result) return;
-    if (!result.description || !result.amount) { ui.notifications.warn("Enter both an amount and a description."); return; }
-    const signed = result.type === "payment" ? -result.amount : result.amount;
-    await postTransaction(this.doc, { amount: signed, description: result.description, source: "manual" });
+    if (!clicked) return;
+    const description = descEl.value.trim();
+    const amount = Math.abs(Number(amountEl.value)) || 0;
+    if (!description || !amount) { ui.notifications.warn("Enter both an amount and a description."); return; }
+    const signed = type === "payment" ? -amount : amount;
+    await postTransaction(this.doc, { amount: signed, description, source: "manual" });
     this._renderContent();
   }
 
@@ -293,28 +288,30 @@ class GroupFinanceApp extends TradingWindowBase {
         <div class="tt-field"><label>Every N days</label><input type="number" id="tt-dlg-period" min="1" value="${existing?.periodDays || 30}"></div>
       </div>`;
     bindCustomSelects(content);
-    // Captured now — see the matching note in _action_add_transaction
-    // above for why querying `content` again inside the callback isn't
-    // reliable.
+    // Track field values via live listeners, then read only after the
+    // dialog resolves to a plain action string — see the matching note in
+    // _action_add_transaction above for why a button's `callback` return
+    // value can't be relied on at all.
+    let type = existing?.type || "income";
     const typeWrapper = content.querySelector('[data-tt-select-handler="recType"]');
+    typeWrapper.addEventListener("click", (e) => {
+      const opt = e.target.closest("[data-tt-select-opt]");
+      if (opt) type = opt.dataset.ttSelectOpt;
+    });
     const descEl = content.querySelector("#tt-dlg-desc");
     const amountEl = content.querySelector("#tt-dlg-amount");
     const periodEl = content.querySelector("#tt-dlg-period");
-    return foundry.applications.api.DialogV2.prompt({
+    const clicked = await foundry.applications.api.DialogV2.prompt({
       window: { title: isEdit ? "Edit Recurring Income or Cost" : "New Group Recurring Income or Cost" },
       content,
-      ok: {
-        label: isEdit ? "Save" : "Add",
-        callback: () => {
-          const type = typeWrapper.querySelector(".tt-select-opt.selected")?.dataset.ttSelectOpt || "income";
-          const description = descEl.value.trim();
-          const amount = Math.abs(Number(amountEl.value)) || 0;
-          const periodDays = Math.max(1, Number(periodEl.value) || 30);
-          return { type, description, amount, periodDays };
-        }
-      },
+      ok: { label: isEdit ? "Save" : "Add" },
       rejectClose: false
     });
+    if (!clicked) return null;
+    const description = descEl.value.trim();
+    const amount = Math.abs(Number(amountEl.value)) || 0;
+    const periodDays = Math.max(1, Number(periodEl.value) || 30);
+    return { type, description, amount, periodDays };
   }
 
   async _action_add_group_recurring() {

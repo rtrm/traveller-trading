@@ -102,37 +102,39 @@ function showFindDialog({ title, purposeLabel, checkOptions, starportDM, priorDM
       <div class="tt-field tt-field-checkbox"><label><input type="checkbox" id="tt-rush"> Rush the search (DM-2, resolves in 1D6&times;10 hours instead of the normal wait)</label></div>
       <div class="tt-field"><label>Your total (already-modified) check result</label><input type="number" id="tt-result" placeholder="e.g. 9"></div>
     </div>`;
-  // Capture element references NOW, before DialogV2 ever renders — it
-  // turns out to restructure/move the content it's given internally
-  // (confirmed: DialogV2 already requires the passed element itself to
-  // carry no attributes, so it's doing more than a plain insert), which
-  // left `content.querySelector(...)` unable to find anything when called
-  // later from inside a button callback (querying AFTER that
-  // restructuring), even though the earlier "must have no attributes" fix
-  // was otherwise correct. A direct node reference captured before any of
-  // that happens keeps working regardless of where the node ends up,
-  // since moving a node in the DOM never invalidates existing references
-  // to it — same reason _showFreightGenerationResults's pre-captured
-  // checkboxes below never had this problem.
-  const rushEl = content.querySelector("#tt-rush");
-  const resultEl = content.querySelector("#tt-result");
-  const checkTypeEls = Array.from(content.querySelectorAll('input[name="tt-check-type"]'));
+  // Track field values via live listeners rather than reading them back
+  // later — confirmed live (2026-09-16) that a button's `callback` return
+  // value is NOT what DialogV2.wait() actually resolves with: it resolves
+  // to the plain `action` string regardless, so `{checkType, rushed,
+  // result}` was never reaching _runSearch at all (every access on the
+  // string "ok" is undefined, but "ok" itself is truthy, which is exactly
+  // why the "was a supplier actually found" logic kept silently failing
+  // through several earlier fix attempts that all still depended on the
+  // callback's return value being used). This version depends on nothing
+  // but the two most basic, well-established behaviors: a real "change"/
+  // "input" DOM event firing on a real element, and DialogV2.wait()
+  // resolving to a button's plain `action` string when it has no
+  // callback at all.
+  let checkType = checkOptions[0].value;
+  let rushed = false;
+  let result = "";
+  content.querySelectorAll('input[name="tt-check-type"]').forEach(el => {
+    el.addEventListener("change", () => { if (el.checked) checkType = el.value; });
+  });
+  content.querySelector("#tt-rush").addEventListener("change", (e) => { rushed = e.target.checked; });
+  content.querySelector("#tt-result").addEventListener("input", (e) => { result = e.target.value; });
+
   return foundry.applications.api.DialogV2.wait({
     window: { title },
     content,
     buttons: [
-      {
-        action: "ok", label: "Attempt Search", default: true,
-        callback: () => {
-          const checkType = checkTypeEls.find(el => el.checked)?.value || checkOptions[0].value;
-          const rushed = rushEl.checked;
-          const result = resultEl.value;
-          return result === "" ? null : { checkType, rushed, result: Number(result) };
-        }
-      },
-      { action: "cancel", label: "Cancel", callback: () => null }
+      { action: "ok", label: "Attempt Search", default: true },
+      { action: "cancel", label: "Cancel" }
     ],
     rejectClose: false
+  }).then(action => {
+    if (action !== "ok") return null;
+    return result === "" ? null : { checkType, rushed, result: Number(result) };
   });
 }
 
@@ -156,18 +158,20 @@ function showAutoSearchDialog({ title, viaText, starportDM, priorDM }) {
       <p class="tt-hint">DMs applied: ${dmLines}</p>
       <div class="tt-field tt-field-checkbox"><label><input type="checkbox" id="tt-rush"> Rush the search (DM-2, resolves in 1D6&times;10 hours instead of the normal wait)</label></div>
     </div>`;
-  // Captured up front — see showFindDialog's note on why querying
-  // `content` again inside the button callback isn't reliable.
-  const rushEl = content.querySelector("#tt-rush");
+  // Tracked via a live listener, then read only after the dialog resolves
+  // to a plain action string — see showFindDialog's note on why a
+  // button's `callback` return value can't be relied on at all.
+  let rushed = false;
+  content.querySelector("#tt-rush").addEventListener("change", (e) => { rushed = e.target.checked; });
   return foundry.applications.api.DialogV2.wait({
     window: { title },
     content,
     buttons: [
-      { action: "ok", label: "Start Search", default: true, callback: () => ({ rushed: rushEl.checked }) },
-      { action: "cancel", label: "Cancel", callback: () => null }
+      { action: "ok", label: "Start Search", default: true },
+      { action: "cancel", label: "Cancel" }
     ],
     rejectClose: false
-  });
+  }).then(action => action === "ok" ? { rushed } : null);
 }
 
 class TradeMarketApp extends TradingWindowBase {

@@ -77,21 +77,22 @@ export class LauncherController {
     const label = isStorage ? "storage location" : "starship";
     const content = document.createElement("div");
     content.innerHTML = `<div class="tt-field"><label>Name of the ${label}</label><input type="text" id="tt-new-name" placeholder="e.g. ${isStorage ? "Warehouse 7" : "Far Trader"}"></div>`;
-    // Captured now — querying `content` again inside the button callback
-    // (after DialogV2 has rendered) turned out unreliable, since DialogV2
-    // restructures/moves the content it's given internally. A direct
-    // reference captured before that happens keeps working regardless of
-    // where the node ends up.
     const nameEl = content.querySelector("#tt-new-name");
-    const name = await foundry.applications.api.DialogV2.wait({
+    // Read nameEl.value only AFTER the dialog resolves, not inside a
+    // button `callback` — confirmed live (2026-09-16) that a callback's
+    // return value is NOT what DialogV2.wait() actually resolves with (it
+    // resolves to a button's plain `action` string regardless), so this
+    // no longer depends on that mechanism at all.
+    const action = await foundry.applications.api.DialogV2.wait({
       window: { title: `Add ${isStorage ? "Storage" : "Starship"}` },
       content,
       buttons: [
-        { action: "ok", label: "Add", default: true, callback: () => nameEl.value.trim() },
-        { action: "cancel", label: "Cancel", callback: () => null }
+        { action: "ok", label: "Add", default: true },
+        { action: "cancel", label: "Cancel" }
       ],
       rejectClose: false
     });
+    const name = action === "ok" ? nameEl.value.trim() : null;
     if (!name) return;
     const doc = await createShipDoc(name, isStorage);
     this.refresh();
