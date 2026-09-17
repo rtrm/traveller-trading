@@ -494,7 +494,11 @@ class TradeMarketApp extends TradingWindowBase {
 
   _buyTableHtml(editable, usage, record) {
     const codes = new Set(record.market.codes);
-    const rows = record.market.entries.map(entry => {
+    // Goods that rolled zero tons available (logged in full, dice and all,
+    // when the search was resolved — see finalizeSearch/logDebugBlock in
+    // supplier-search.mjs) aren't worth cluttering the table with a row
+    // nothing can ever be bought from.
+    const rows = record.market.entries.filter(entry => entry.availableTons > 0).map(entry => {
       const good = goodByName(entry.goodName);
       const offer = record.priceOffers[good.name];
       const range = typicalPriceRange({
