@@ -9,8 +9,27 @@ import { resolveLocation, openDestinationMapApp, pickLocationCandidate } from ".
 import { generatePassengers } from "./passenger-gen.mjs";
 import { generateFreight, LOT_SIZES } from "./freight-gen.mjs";
 import { addOrMergeCargo, removeCargoQuantity } from "./cargo-utils.mjs";
+import { goodByName } from "./trade-data.mjs";
 import { openTradeMarketApp } from "./trade-app.mjs";
 import { logDebugBlock } from "./debug-log.mjs";
+
+// Mouse-over tooltip for a cargo row: which trade codes give a Purchase or
+// Sale DM *bonus* for this good (a positive dm only — not the penalty
+// codes, and not the DM values themselves, just which codes to look for on
+// a world when deciding where to sell). Not tied to any particular world's
+// own codes (unlike the Buy/Sell Goods table's "Buying/Selling benefits"
+// columns, which only show codes the CURRENT world actually has) since
+// cargo in the hold could end up sold anywhere.
+function cargoTradeCodeTooltip(itemName) {
+  const good = goodByName(itemName);
+  if (!good) return "";
+  const buyCodes = (good.purchaseDM || []).filter(d => d.dm > 0).map(d => d.code);
+  const sellCodes = (good.saleDM || []).filter(d => d.dm > 0).map(d => d.code);
+  const lines = [];
+  if (buyCodes.length) lines.push(`Buying bonus on: ${buyCodes.join(", ")}`);
+  if (sellCodes.length) lines.push(`Selling bonus on: ${sellCodes.join(", ")}`);
+  return lines.join("\n");
+}
 
 const RANK = { low: 0, basic: 1, middle: 2, high: 3 };
 const BERTH_RANK_ORDER = ["high", "middle", "basic", "low"]; // top to bottom, for cascading berth allocation
@@ -353,7 +372,7 @@ class ShipApp extends TradingWindowBase {
             ${cargo.map(c => `
               <tr>
                 <td class="tt-cargo-item">
-                  <div class="tt-cargo-drag" data-tt-cargo-row data-id="${c.id}" ${editable ? 'draggable="true"' : ""}>
+                  <div class="tt-cargo-drag" data-tt-cargo-row data-id="${c.id}" ${editable ? 'draggable="true"' : ""} title="${esc(cargoTradeCodeTooltip(c.itemName))}">
                     <img class="tt-cargo-icon" src="${esc(c.img || DEFAULT_ITEM_ICON)}" alt="">
                     <span>${esc(c.itemName)}</span>
                   </div>
