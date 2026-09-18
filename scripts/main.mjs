@@ -211,9 +211,26 @@ function injectSidebarTab() {
     // "toggleExpanded"]` matches — was silently landing every time, since
     // that selector doesn't match anything in this Foundry version) ends up
     // looking like a stray icon separated from the rest by extra spacing.
-    const settingsButton = tabContainer.querySelector('[data-tab="settings"][role="tab"]');
-    if (settingsButton) tabContainer.insertBefore(button, settingsButton);
-    else tabContainer.appendChild(button);
+    // insertBefore's reference node must be a DIRECT child of tabContainer,
+    // not just any descendant — querySelector happily finds a match nested
+    // inside some wrapper, but passing that straight to insertBefore then
+    // throws "not a child of this node" (confirmed live, 2026-09-18). Walk
+    // up from the match to whichever ancestor actually is tabContainer's
+    // direct child before using it as the reference.
+    let settingsButton = tabContainer.querySelector('[data-tab="settings"][role="tab"]');
+    while (settingsButton && settingsButton.parentElement !== tabContainer) settingsButton = settingsButton.parentElement;
+    try {
+      if (settingsButton) tabContainer.insertBefore(button, settingsButton);
+      else tabContainer.appendChild(button);
+    } catch (insertErr) {
+      // Never let a positioning quirk leave the tab entirely un-added —
+      // the earlier version of this bug did exactly that, and worse, left
+      // `section` (already appended above) orphaned with no button at all,
+      // since the getElementById dedup guard then made every later retry
+      // think injection had already fully succeeded.
+      console.warn("Traveller Trading | Could not position sidebar tab precisely, appending instead.", insertErr);
+      tabContainer.appendChild(button);
+    }
     return true;
   } catch (err) {
     console.warn("Traveller Trading | Could not add sidebar tab, use the macro instead.", err);
