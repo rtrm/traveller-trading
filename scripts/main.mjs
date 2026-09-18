@@ -34,6 +34,15 @@ Hooks.once("init", () => {
       controller?.root?.classList.toggle("tt-standard-look", !!value);
     }
   });
+
+  game.settings.registerMenu(MODULE_ID, "resetData", {
+    name: "Reset Tracker Data",
+    label: "Reset Data",
+    hint: "Delete Group Finance and every starship/storage location tracked by Traveller Trading — all cargo, passengers, transactions, and supplier searches. This cannot be undone.",
+    icon: "fa-solid fa-rotate-left",
+    type: TravellerTradingResetMenu,
+    restricted: true
+  });
 });
 
 Hooks.once("ready", () => {
@@ -95,20 +104,20 @@ Hooks.on("deleteJournalEntry", (doc) => {
   closeTradeMarketAppsIfOpen(doc.id);
 });
 
-// "tt reset" chat trigger (plain text, deliberately no leading "/") —
-// deletes Group Finance and every starship/storage JournalEntry this
-// module owns (cargo, passengers, transactions, and supplier searches all
-// live as flags on those same documents, so deleting the documents is a
-// complete reset). Confirmed live (2026-09) that a leading "/" routes the
-// message through Foundry's OWN built-in command validator first, which
-// rejects any unrecognized "/word" outright ("is not a valid chat message
-// command") before any module's "chatMessage" hook gets a chance to
-// intercept it — registering a genuinely new slash-verb needs a
-// different, more involved mechanism than a plain hook. Plain (non-"/")
-// text never goes through that validator, so this hook reliably sees it.
-// Returning false stops the text being posted as a normal chat message,
-// and any other input is left alone (returning true) so this can never
-// interfere with real chat, rolls, or other modules' own commands.
+// Reset is deliberately tucked away in Foundry's Configure Settings screen
+// (Module Settings) rather than the sidebar panel, so it isn't one click
+// away during normal play — chat-based triggers were tried first ("/tt-
+// reset", then plain "tt reset") and both failed live for reasons never
+// fully pinned down (a leading "/" is confirmed routed through Foundry's
+// own command validator before any module hook runs at all, and even
+// dropping the "/" didn't reliably work either), so this uses the same
+// settings-menu-confirm-dialog pattern Drinax Tracker's own Reset Data
+// menu already uses successfully. Deletes Group Finance and every
+// starship/storage JournalEntry this module owns — cargo, passengers,
+// transactions, and supplier searches all live as flags on those same
+// documents, so deleting the documents is a complete reset. The
+// DialogV2.confirm below is the actual safety check against an accidental
+// click: nothing is deleted unless the GM explicitly confirms.
 async function resetAllData() {
   const ok = await foundry.applications.api.DialogV2.confirm({
     window: { title: "Reset Traveller Trading Data" },
@@ -121,15 +130,18 @@ async function resetAllData() {
   ui.notifications.info("Traveller Trading data has been reset.");
 }
 
-Hooks.on("chatMessage", (chatLog, message) => {
-  if (message.trim().toLowerCase() !== "tt reset") return true;
-  if (!game.user.isGM) {
-    ui.notifications.warn("Only the GM can reset Traveller Trading data.");
-    return false;
+// Foundry requires a settings-menu "type" to be a FormApplication or
+// ApplicationV2 subclass — a plain Dialog is rejected — so this overrides
+// render() to show the confirm dialog instead of ever opening an actual
+// form window, same trick Drinax Tracker's own DrinaxResetMenu uses.
+class TravellerTradingResetMenu extends foundry.applications.api.ApplicationV2 {
+  static DEFAULT_OPTIONS = { id: "traveller-trading-reset-menu", window: { title: "Reset Traveller Trading Data" } };
+
+  async render(options) {
+    await resetAllData();
+    return this;
   }
-  resetAllData();
-  return false;
-});
+}
 
 // ---------------------------------------------------------------------------
 // Sidebar integration. Foundry v13/v14 doesn't expose a documented, reliable
