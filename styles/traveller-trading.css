@@ -16,6 +16,19 @@
   display: none !important;
 }
 
+/* The cursor not changing to a pointer over a clickable row (confirmed
+   live, 2026-09-19), together with clicks not reaching even a
+   document-level capture-phase listener, means something — almost
+   certainly Foundry's own sidebar, mid-settle right after our tab is
+   first activated — was leaving pointer-events disabled somewhere in this
+   ancestor chain: a click landing on a pointer-events:none element never
+   reaches it OR any ancestor's listeners at all, it passes straight
+   through to whatever's behind it. Force it back on for our own content
+   regardless of whatever Foundry's own transient state is doing. */
+#traveller-trading.tt-active {
+  pointer-events: auto !important;
+}
+
 #tt-root {
   color-scheme: dark;
   --bg: #0b0f17;
