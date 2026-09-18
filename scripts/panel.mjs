@@ -44,24 +44,38 @@ export class LauncherController {
     this.root.classList.toggle("tt-standard-look", standardLookEnabled());
     this.root.addEventListener("click", (e) => this._onClick(e));
 
-    // jQuery: false opts into v14's future default (and silences the v13
-    // deprecation warning) — condition/callback below receive a plain
-    // HTMLElement rather than a jQuery-wrapped one.
-    new foundry.applications.ux.ContextMenu(this.root, ".directory-item[data-tt-open]", [
-      {
-        name: "Delete",
-        icon: '<i class="fa-solid fa-trash"></i>',
-        condition: (el) => game.user.isGM && el.dataset.ttOpen !== "finance",
-        callback: async (el) => {
-          const id = el.dataset.ttOpen;
-          const ok = await foundry.applications.api.DialogV2.confirm({ window: { title: "Delete" }, content: "<p>Delete this entry? This cannot be undone.</p>" });
-          if (!ok) return;
-          await deleteShipDoc(id);
-          closeShipAppIfOpen(id);
-          this.refresh();
+    // Deferred one tick: mount() runs SYNCHRONOUSLY inside the sidebar
+    // button's own click handler (activateTab -> controller.mount()),
+    // while that same click event is still bubbling up toward document. A
+    // listener attached to an ancestor (ContextMenu attaches one to
+    // document, to detect "click outside the menu, close it") DURING a
+    // bubbling event's dispatch still fires for that SAME event once
+    // bubbling reaches it — standard DOM behavior, not a bug in
+    // ContextMenu — which meant the very click that opened this tab was
+    // ALSO being delivered to ContextMenu as a same-event "outside click",
+    // leaving it in a state that swallowed the next real click on this
+    // panel until the tab was closed and reopened. Constructing it after
+    // the current event has finished dispatching avoids that entirely.
+    setTimeout(() => {
+      // jQuery: false opts into v14's future default (and silences the v13
+      // deprecation warning) — condition/callback below receive a plain
+      // HTMLElement rather than a jQuery-wrapped one.
+      new foundry.applications.ux.ContextMenu(this.root, ".directory-item[data-tt-open]", [
+        {
+          name: "Delete",
+          icon: '<i class="fa-solid fa-trash"></i>',
+          condition: (el) => game.user.isGM && el.dataset.ttOpen !== "finance",
+          callback: async (el) => {
+            const id = el.dataset.ttOpen;
+            const ok = await foundry.applications.api.DialogV2.confirm({ window: { title: "Delete" }, content: "<p>Delete this entry? This cannot be undone.</p>" });
+            if (!ok) return;
+            await deleteShipDoc(id);
+            closeShipAppIfOpen(id);
+            this.refresh();
+          }
         }
-      }
-    ], { jQuery: false });
+      ], { jQuery: false });
+    }, 0);
 
     this.refresh();
   }
