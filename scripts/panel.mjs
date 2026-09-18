@@ -44,39 +44,16 @@ export class LauncherController {
     this.root.classList.toggle("tt-standard-look", standardLookEnabled());
     this.root.addEventListener("click", (e) => this._onClick(e));
 
-    // TEMPORARY diagnostic for the "first click after opening the tab does
-    // nothing" report (2026-09-18/19) — the previous fix (deferring
-    // ContextMenu construction) made no difference, and the root-level
-    // click listener above never even logs, so this attaches at the
-    // document level in the CAPTURE phase (fires before anything else,
-    // including any ancestor that might be swallowing the event) and logs
-    // unconditionally for any click landing anywhere near the sidebar, to
-    // see what the browser is actually delivering the click to and
-    // whether pointer-events are blocked on it.
-    document.addEventListener("click", (e) => {
-      if (!e.target?.closest?.("#sidebar, #traveller-trading")) return;
-      console.debug("Traveller Trading | DIAG capture-phase click", {
-        target: e.target,
-        tagName: e.target?.tagName,
-        withinOurRoot: this.root?.contains(e.target),
-        pointerEvents: getComputedStyle(e.target).pointerEvents,
-        elementFromPoint: document.elementFromPoint(e.clientX, e.clientY),
-        defaultPrevented: e.defaultPrevented
-      });
-    }, true);
-
     // Deferred one tick: mount() runs SYNCHRONOUSLY inside the sidebar
-    // button's own click handler (activateTab -> controller.mount()),
-    // while that same click event is still bubbling up toward document. A
-    // listener attached to an ancestor (ContextMenu attaches one to
-    // document, to detect "click outside the menu, close it") DURING a
-    // bubbling event's dispatch still fires for that SAME event once
-    // bubbling reaches it — standard DOM behavior, not a bug in
-    // ContextMenu — which meant the very click that opened this tab was
-    // ALSO being delivered to ContextMenu as a same-event "outside click",
-    // leaving it in a state that swallowed the next real click on this
-    // panel until the tab was closed and reopened. Constructing it after
-    // the current event has finished dispatching avoids that entirely.
+    // button's own click handler, while that click is still bubbling
+    // toward document. A listener attached to an ancestor (ContextMenu
+    // attaches one to document, to detect "click outside the menu, close
+    // it") DURING a bubbling event's dispatch still fires for that SAME
+    // event once bubbling reaches it — standard DOM behavior. Not
+    // actually the cause of the first-click-swallowed bug (that turned
+    // out to be pointer-events, see traveller-trading.css), but
+    // constructing this after the current event has fully dispatched is
+    // still worth keeping to avoid that same-event delivery entirely.
     setTimeout(() => {
       // jQuery: false opts into v14's future default (and silences the v13
       // deprecation warning) — condition/callback below receive a plain
@@ -109,11 +86,6 @@ export class LauncherController {
   }
 
   async _onClick(e) {
-    // TEMPORARY diagnostic for the "first click after opening the tab does
-    // nothing, works after switching tabs and back" report (2026-09-18) —
-    // confirms whether this listener even receives the click at all on the
-    // first attempt; remove once that's root-caused.
-    console.debug("Traveller Trading | launcher click", { target: e.target, matchedOpen: !!e.target.closest("[data-tt-open]"), matchedAdd: !!e.target.closest("[data-tt-add]"), matchedModule: !!e.target.closest("[data-tt-open-module]") });
     const item = e.target.closest("[data-tt-open]");
     if (item) {
       const id = item.dataset.ttOpen;
