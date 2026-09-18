@@ -43,6 +43,10 @@ export function refreshGroupFinanceApp() {
   if (instance?.rendered) instance._renderContent();
 }
 
+export function closeGroupFinanceAppIfOpen() {
+  if (instance?.rendered) instance.close();
+}
+
 function sourceDisplayName(doc) {
   return doc.name.replace(/^Starship: |^Storage: /, "");
 }

@@ -5,7 +5,7 @@ import { registerTransactionLog } from "./logging.mjs";
 import { resetDebugLog } from "./debug-log.mjs";
 import { LauncherController } from "./panel.mjs";
 import { getFinanceDoc, processRecurring } from "./data.mjs";
-import { refreshGroupFinanceApp, registerFinanceSettings } from "./finance-app.mjs";
+import { refreshGroupFinanceApp, registerFinanceSettings, closeGroupFinanceAppIfOpen } from "./finance-app.mjs";
 import { refreshShipApp, closeShipAppIfOpen } from "./ship-app.mjs";
 import { closeTradeMarketAppsIfOpen, checkPendingSupplierSearches } from "./trade-app.mjs";
 import { registerDestinationMapSettings, registerPreferredSectorChoices } from "./destination-map.mjs";
@@ -93,6 +93,36 @@ Hooks.on("deleteJournalEntry", (doc) => {
   refreshLauncher();
   closeShipAppIfOpen(doc.id);
   closeTradeMarketAppsIfOpen(doc.id);
+});
+
+// "/tt-reset" chat command — deletes Group Finance and every starship/
+// storage JournalEntry this module owns (cargo, passengers, transactions,
+// and supplier searches all live as flags on those same documents, so
+// deleting the documents is a complete reset). Foundry has no built-in
+// slash-command framework, so this hooks the raw chat entry box directly;
+// returning false stops the text being posted as a normal chat message,
+// and any other input is left alone (returning true) so this can never
+// interfere with real chat, rolls, or other modules' own commands.
+async function resetAllData() {
+  const ok = await foundry.applications.api.DialogV2.confirm({
+    window: { title: "Reset Traveller Trading Data" },
+    content: "<p>Delete Group Finance and every starship/storage location tracked by Traveller Trading &mdash; all cargo, passengers, transactions, and supplier searches? This cannot be undone.</p>"
+  });
+  if (!ok) return;
+  closeGroupFinanceAppIfOpen();
+  const docs = game.journal.filter(j => !!j.getFlag(MODULE_ID, "kind"));
+  for (const doc of docs) await doc.delete();
+  ui.notifications.info("Traveller Trading data has been reset.");
+}
+
+Hooks.on("chatMessage", (chatLog, message) => {
+  if (message.trim().toLowerCase() !== "/tt-reset") return true;
+  if (!game.user.isGM) {
+    ui.notifications.warn("Only the GM can reset Traveller Trading data.");
+    return false;
+  }
+  resetAllData();
+  return false;
 });
 
 // ---------------------------------------------------------------------------
