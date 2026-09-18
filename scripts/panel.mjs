@@ -4,6 +4,15 @@ import { esc, standardLookEnabled, createDialogV2 } from "./window-base.mjs";
 import { openGroupFinanceApp } from "./finance-app.mjs";
 import { openShipApp, closeShipAppIfOpen } from "./ship-app.mjs";
 
+// Sibling Traveller modules whose sidebar icon this launcher's footer also
+// surfaces when they're installed and active — each exposes a no-arg
+// `game.modules.get(id).api.open()`, the same convention this module's own
+// main.mjs uses for its public API.
+const RELATED_MODULES = [
+  { id: "drinax-tracker", title: "Pirates of Drinax Tracker", icon: "fa-skull-crossbones" },
+  { id: "traveller-name-generator", title: "Traveller Name Generator", icon: "fa-dice" }
+];
+
 // Mounted into the real sidebar tab strip (see main.mjs) as a simple
 // launcher/directory list, matching how every other sidebar tab behaves:
 // entries here just open the relevant document in its own window, rather
@@ -27,6 +36,9 @@ export class LauncherController {
           <h3 class="tt-launcher-title">Traveller Trading</h3>
         </header>
         <ol class="directory-list" data-tt-launcher-list></ol>
+        <footer class="directory-footer">
+          <ol class="directory-list" data-tt-launcher-footer></ol>
+        </footer>
       </div>`;
     this.root = this.host.querySelector("#tt-root");
     this.root.classList.toggle("tt-standard-look", standardLookEnabled());
@@ -62,6 +74,11 @@ export class LauncherController {
   }
 
   async _onClick(e) {
+    // TEMPORARY diagnostic for the "first click after opening the tab does
+    // nothing, works after switching tabs and back" report (2026-09-18) —
+    // confirms whether this listener even receives the click at all on the
+    // first attempt; remove once that's root-caused.
+    console.debug("Traveller Trading | launcher click", { target: e.target, matchedOpen: !!e.target.closest("[data-tt-open]"), matchedAdd: !!e.target.closest("[data-tt-add]"), matchedModule: !!e.target.closest("[data-tt-open-module]") });
     const item = e.target.closest("[data-tt-open]");
     if (item) {
       const id = item.dataset.ttOpen;
@@ -71,6 +88,8 @@ export class LauncherController {
     }
     const addBtn = e.target.closest("[data-tt-add]");
     if (addBtn) { await this._promptAddShip(addBtn.dataset.ttAdd === "storage"); return; }
+    const moduleBtn = e.target.closest("[data-tt-open-module]");
+    if (moduleBtn) { game.modules.get(moduleBtn.dataset.ttOpenModule)?.api?.open?.(); return; }
   }
 
   async _promptAddShip(isStorage) {
@@ -110,7 +129,8 @@ export class LauncherController {
 
   _renderList() {
     const list = this.root?.querySelector("[data-tt-launcher-list]");
-    if (!list) return;
+    const footer = this.root?.querySelector("[data-tt-launcher-footer]");
+    if (!list || !footer) return;
     let html = `
       <li class="directory-item tt-launcher-item" data-tt-open="finance">
         <span class="tt-launcher-icon">💰</span>
@@ -125,8 +145,11 @@ export class LauncherController {
         <div class="document-name">${esc(doc.name.replace(/^Starship: |^Storage: /, ""))}</div>
       </li>`;
     }
+    list.innerHTML = html;
+
+    let footerHtml = "";
     if (game.user.isGM) {
-      html += `
+      footerHtml += `
       <li class="directory-item tt-launcher-item tt-launcher-add" data-tt-add="ship">
         <span class="tt-launcher-icon">➕🚀</span>
         <div class="document-name">Add Starship</div>
@@ -136,6 +159,14 @@ export class LauncherController {
         <div class="document-name">Add Storage Location</div>
       </li>`;
     }
-    list.innerHTML = html;
+    for (const mod of RELATED_MODULES) {
+      if (!game.modules.get(mod.id)?.active) continue;
+      footerHtml += `
+      <li class="directory-item tt-launcher-item tt-launcher-add" data-tt-open-module="${mod.id}">
+        <span class="tt-launcher-icon"><i class="fa-solid ${mod.icon}"></i></span>
+        <div class="document-name">${esc(mod.title)}</div>
+      </li>`;
+    }
+    footer.innerHTML = footerHtml;
   }
 }

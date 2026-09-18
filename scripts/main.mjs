@@ -138,7 +138,6 @@ function injectSidebarTab() {
     button.setAttribute("aria-pressed", "false");
     button.setAttribute("aria-label", "Traveller Trading");
     button.setAttribute("aria-controls", MODULE_ID);
-    button.style.marginTop = "4px";
 
     const section = document.createElement("section");
     section.id = MODULE_ID;
@@ -204,12 +203,16 @@ function injectSidebarTab() {
     }, true);
 
     contentContainer.appendChild(section);
-    // Insert before the sidebar's own collapse/expand toggle control (which
-    // sits at the end of the same tab strip) rather than after it, so this
-    // tab appears grouped with the other tab icons instead of trailing the
-    // whole strip.
-    const collapseToggle = tabContainer.querySelector('[data-action="toggleExpanded"]');
-    if (collapseToggle) tabContainer.insertBefore(button, collapseToggle);
+    // Insert before the Settings tab (always present, always last among the
+    // "real" tabs) rather than at the very end of the strip — grouping with
+    // the other content tabs instead of trailing after Settings and the
+    // collapse/expand toggle, which is where an appendChild fallback (the
+    // previous approach — insert before whatever `[data-action=
+    // "toggleExpanded"]` matches — was silently landing every time, since
+    // that selector doesn't match anything in this Foundry version) ends up
+    // looking like a stray icon separated from the rest by extra spacing.
+    const settingsButton = tabContainer.querySelector('[data-tab="settings"][role="tab"]');
+    if (settingsButton) tabContainer.insertBefore(button, settingsButton);
     else tabContainer.appendChild(button);
     return true;
   } catch (err) {
