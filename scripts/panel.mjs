@@ -44,6 +44,27 @@ export class LauncherController {
     this.root.classList.toggle("tt-standard-look", standardLookEnabled());
     this.root.addEventListener("click", (e) => this._onClick(e));
 
+    // TEMPORARY diagnostic for the "first click after opening the tab does
+    // nothing" report (2026-09-18/19) — the previous fix (deferring
+    // ContextMenu construction) made no difference, and the root-level
+    // click listener above never even logs, so this attaches at the
+    // document level in the CAPTURE phase (fires before anything else,
+    // including any ancestor that might be swallowing the event) and logs
+    // unconditionally for any click landing anywhere near the sidebar, to
+    // see what the browser is actually delivering the click to and
+    // whether pointer-events are blocked on it.
+    document.addEventListener("click", (e) => {
+      if (!e.target?.closest?.("#sidebar, #traveller-trading")) return;
+      console.debug("Traveller Trading | DIAG capture-phase click", {
+        target: e.target,
+        tagName: e.target?.tagName,
+        withinOurRoot: this.root?.contains(e.target),
+        pointerEvents: getComputedStyle(e.target).pointerEvents,
+        elementFromPoint: document.elementFromPoint(e.clientX, e.clientY),
+        defaultPrevented: e.defaultPrevented
+      });
+    }, true);
+
     // Deferred one tick: mount() runs SYNCHRONOUSLY inside the sidebar
     // button's own click handler (activateTab -> controller.mount()),
     // while that same click event is still bubbling up toward document. A
