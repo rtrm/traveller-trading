@@ -95,12 +95,18 @@ Hooks.on("deleteJournalEntry", (doc) => {
   closeTradeMarketAppsIfOpen(doc.id);
 });
 
-// "/tt-reset" chat command — deletes Group Finance and every starship/
-// storage JournalEntry this module owns (cargo, passengers, transactions,
-// and supplier searches all live as flags on those same documents, so
-// deleting the documents is a complete reset). Foundry has no built-in
-// slash-command framework, so this hooks the raw chat entry box directly;
-// returning false stops the text being posted as a normal chat message,
+// "tt reset" chat trigger (plain text, deliberately no leading "/") —
+// deletes Group Finance and every starship/storage JournalEntry this
+// module owns (cargo, passengers, transactions, and supplier searches all
+// live as flags on those same documents, so deleting the documents is a
+// complete reset). Confirmed live (2026-09) that a leading "/" routes the
+// message through Foundry's OWN built-in command validator first, which
+// rejects any unrecognized "/word" outright ("is not a valid chat message
+// command") before any module's "chatMessage" hook gets a chance to
+// intercept it — registering a genuinely new slash-verb needs a
+// different, more involved mechanism than a plain hook. Plain (non-"/")
+// text never goes through that validator, so this hook reliably sees it.
+// Returning false stops the text being posted as a normal chat message,
 // and any other input is left alone (returning true) so this can never
 // interfere with real chat, rolls, or other modules' own commands.
 async function resetAllData() {
@@ -116,7 +122,7 @@ async function resetAllData() {
 }
 
 Hooks.on("chatMessage", (chatLog, message) => {
-  if (message.trim().toLowerCase() !== "/tt-reset") return true;
+  if (message.trim().toLowerCase() !== "tt reset") return true;
   if (!game.user.isGM) {
     ui.notifications.warn("Only the GM can reset Traveller Trading data.");
     return false;
