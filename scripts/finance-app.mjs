@@ -33,7 +33,7 @@ function transactionDisplayLimit() {
 let instance = null;
 
 export function openGroupFinanceApp() {
-  if (instance && instance.rendered) { instance.bringToTop(); return instance; }
+  if (instance && instance.rendered) { instance.bringToFront(); return instance; }
   instance = new GroupFinanceApp();
   instance.render(true);
   return instance;

@@ -16,7 +16,7 @@ const instances = new Map(); // `${docId}:${mode}` -> TradeMarketApp
 export function openTradeMarketApp({ docId, mode }) {
   const key = `${docId}:${mode}`;
   const existing = instances.get(key);
-  if (existing && existing.rendered) { existing.bringToTop(); return existing; }
+  if (existing && existing.rendered) { existing.bringToFront(); return existing; }
   const app = new TradeMarketApp(docId, mode);
   instances.set(key, app);
   app.render(true);

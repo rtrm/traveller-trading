@@ -295,7 +295,7 @@ let instance = null;
 // decides what to do with it (normally: save it as the ship's
 // destination) — this module only renders the map and reports the click.
 export function openDestinationMapApp({ docId, originSector, originHex, initialJump, onPick }) {
-  if (instance && instance.rendered && instance.docId === docId) { instance.bringToTop(); return instance; }
+  if (instance && instance.rendered && instance.docId === docId) { instance.bringToFront(); return instance; }
   if (instance) instance.close();
   instance = new DestinationMapApp({ docId, originSector, originHex, initialJump, onPick });
   instance.render(true);

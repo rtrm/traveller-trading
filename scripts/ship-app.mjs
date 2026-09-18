@@ -158,7 +158,7 @@ async function promptQuantity({ title, label, defaultValue, max }) {
 
 export function openShipApp(docId) {
   const existing = instances.get(docId);
-  if (existing && existing.rendered) { existing.bringToTop(); return existing; }
+  if (existing && existing.rendered) { existing.bringToFront(); return existing; }
   const app = new ShipApp(docId);
   instances.set(docId, app);
   app.render(true);
