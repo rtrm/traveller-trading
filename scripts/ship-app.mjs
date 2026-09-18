@@ -242,8 +242,32 @@ class ShipApp extends TradingWindowBase {
     const tabsHtml = `<div class="tt-subtabs">${tabs.map(([id, label]) =>
       `<button type="button" class="tt-subtab ${this.shipTab === id ? "active" : ""}" data-tt-action="ship-tab" data-tt-shiptab="${id}">${label}</button>`
     ).join("")}</div>`;
+    // Storage locations don't travel, so they have no Current Location/
+    // Destination of their own (the config tab is hidden for them too, for
+    // the same reason).
+    const locBarHtml = isStorage ? "" : this._locationBarHtml(this.doc);
     const body = this._shipTabHtml(this.doc);
-    this.root.innerHTML = `<div class="tt-ship">${tabsHtml}<div class="tt-ship-body">${body}</div></div>`;
+    this.root.innerHTML = `<div class="tt-ship">${locBarHtml}${tabsHtml}<div class="tt-ship-body">${body}</div></div>`;
+  }
+
+  // Current Location/Destination and their Set/Arrive actions, shown above
+  // the tabs (not just on the Configuration tab) so they stay visible and
+  // reachable no matter which tab a GM is looking at. One row to keep the
+  // vertical footprint small.
+  _locationBarHtml(doc) {
+    const ship = getShipData(doc);
+    const editable = canEdit(doc);
+    const dis = editable ? "" : "disabled";
+    return `
+      <div class="tt-locbar">
+        <label>Current Location</label>
+        <input type="text" ${dis} class="tt-input" data-tt-field="ship.location" value="${esc(ship.location || "")}" placeholder="e.g. Drinax">
+        <label>Destination</label>
+        <input type="text" ${dis} class="tt-input" data-tt-field="ship.destination" value="${esc(ship.destination || "")}" placeholder="e.g. Overnale">
+        ${editable ? `
+        <button type="button" class="tt-btn tt-btn-ghost" data-tt-action="choose-destination">Set</button>
+        <button type="button" class="tt-btn tt-btn-ghost" data-tt-action="arrive" ${ship.destination ? "" : "disabled"}>Arrive</button>` : ""}
+      </div>`;
   }
 
   _shipTabHtml(doc) {
@@ -269,13 +293,6 @@ class ShipApp extends TradingWindowBase {
         <div class="tt-field"><label>Type</label><input type="text" ${dis} data-tt-field="ship.type" value="${esc(ship.type)}" placeholder="e.g. Far Trader"></div>
         <div class="tt-field tt-field-checkbox"><label><input type="checkbox" ${dis} data-tt-field="ship.armed" ${ship.armed ? "checked" : ""}> Armed</label></div>
         <div class="tt-field"><label>Jump Rating</label><input type="number" ${dis} data-tt-numeric="true" data-tt-field="ship.jumpRating" min="0" max="6" value="${ship.jumpRating ?? 2}"></div>
-        <div class="tt-field"><label>Current Location</label><input type="text" ${dis} data-tt-field="ship.location" value="${esc(ship.location || "")}" placeholder="e.g. Drinax"></div>
-        <div class="tt-field"><label>Destination</label><input type="text" ${dis} data-tt-field="ship.destination" value="${esc(ship.destination || "")}" placeholder="e.g. Overnale"></div>
-        ${editable ? `
-        <div class="tt-inline-row" style="margin-bottom:16px;">
-          <button type="button" class="tt-btn tt-btn-ghost" data-tt-action="choose-destination">Choose on Map</button>
-          <button type="button" class="tt-btn tt-btn-ghost" data-tt-action="arrive" ${ship.destination ? "" : "disabled"}>Arrived at Destination</button>
-        </div>` : ""}
         <div class="tt-field"><label>Total Cargo Space (tons)</label><input type="number" ${dis} data-tt-numeric="true" data-tt-field="ship.cargoSpace" value="${ship.cargoSpace || 0}"></div>
         <h4>Berths</h4>
         <div class="tt-inline-row">

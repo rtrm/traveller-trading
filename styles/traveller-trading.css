@@ -253,6 +253,16 @@
 
 #tt-root .tt-readonly-note { color: var(--text-muted); font-style: italic; font-size: 12px; margin-bottom: 14px; }
 
+/* Current Location/Destination + Set/Arrive, shown above the tabs (not
+   just the Configuration tab) so they're reachable from every tab. All on
+   one row — labels inline rather than stacked above their inputs like
+   .tt-field does — to keep this from eating vertical space every tab has
+   to render below. flex-wrap is a narrow-window fallback, not the normal
+   case. */
+#tt-root .tt-locbar { display: flex; align-items: center; flex-wrap: wrap; gap: 6px 8px; padding-bottom: 12px; margin-bottom: 12px; border-bottom: 1px solid var(--border); }
+#tt-root .tt-locbar label { font-size: 11px; color: var(--text-muted); font-family: "SFMono-Regular", Consolas, monospace; white-space: nowrap; }
+#tt-root .tt-locbar .tt-input { flex: 1 1 140px; min-width: 100px; }
+
 #tt-root .tt-subtabs { display: flex; gap: 4px; border-bottom: 1px solid var(--border); margin-bottom: 12px; }
 #tt-root .tt-subtab {
   font-family: "SFMono-Regular", Consolas, monospace;
