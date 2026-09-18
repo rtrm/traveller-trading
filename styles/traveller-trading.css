@@ -330,20 +330,44 @@
 #tt-root .tt-berth-chip { background: var(--panel); border: 1px solid var(--border); border-radius: 10px; padding: 3px 10px; }
 #tt-root tr.tt-refunded { opacity: 0.5; text-decoration: line-through; }
 
-#tt-root .tt-map-canvas { position: relative; background: var(--panel); border: 1px solid var(--border); border-radius: 5px; padding: 8px; text-align: center; overflow: auto; max-height: 70vh; }
+/* The destination-map window is resizable (see DestinationMapApp's
+   DEFAULT_OPTIONS) and, unlike every other window in this module, wants the
+   map itself to grow into whatever space the GM resizes the window to,
+   rather than the window shrink-wrapping a fixed-size map. #tt-root and
+   .tt-destmap form a flex column filling the window's actual height so
+   .tt-map-canvas (flex: 1 1 auto below) gets whatever's left after the hint
+   text and jump-range row, instead of a size driven purely by its content. */
+#tt-root:has(> .tt-destmap) { display: flex; flex-direction: column; overflow: hidden; }
+#tt-root .tt-destmap { display: flex; flex-direction: column; flex: 1 1 auto; min-height: 0; }
+#tt-root .tt-destmap > .tt-hint,
+#tt-root .tt-destmap > .tt-inline-row { flex: 0 0 auto; }
+
+/* overflow: hidden (not auto) because panning (click-drag, wired in
+   destination-map.mjs) replaces scrolling as the way to reach content
+   outside the visible area — a scrollbar would just fight the drag. */
+#tt-root .tt-map-canvas { position: relative; background: var(--panel); border: 1px solid var(--border); border-radius: 5px; padding: 8px; text-align: center; overflow: hidden; flex: 1 1 auto; min-height: 280px; cursor: grab; user-select: none; }
+#tt-root .tt-map-canvas.tt-panning { cursor: grabbing; }
 /* Wraps the map content (and, for the authentic path, the overlay
-   appended into .tt-map-authentic) so mouse-wheel zoom can scale both
-   together with one CSS transform — see activateListeners' wheel
-   handler. inline-block so it shrinks to its content's own size, keeping
-   the scale's transform-origin centered on the visible map rather than
-   on some arbitrary point in an oversized box. */
-#tt-root .tt-map-zoom { display: inline-block; transform-origin: center center; }
-#tt-root .tt-map-svg { max-width: 100%; max-height: 520px; width: auto; height: auto; display: inline-block; border-radius: 4px; }
+   appended into .tt-map-authentic) so mouse-wheel zoom and click-drag pan
+   can transform both together with one CSS transform — see _onRender's
+   wheel/mousedown handlers. inline-block so it shrinks to its content's
+   own size, keeping the scale's transform-origin centered on the visible
+   map rather than on some arbitrary point in an oversized box. */
+#tt-root .tt-map-zoom { display: inline-block; transform-origin: center center; height: 100%; }
+#tt-root .tt-map-svg { max-width: 100%; max-height: 100%; width: auto; height: 100%; display: inline-block; border-radius: 4px; }
 #tt-root .tt-map-world:not(.tt-map-origin) { cursor: pointer; }
 #tt-root .tt-map-world:not(.tt-map-origin):hover circle { r: 10; stroke: var(--gold); }
 #tt-root .tt-map-world text { pointer-events: none; font-family: "SFMono-Regular", Consolas, monospace; }
 #tt-root .tt-map-starport { font-size: 11px; font-weight: 700; }
 #tt-root .tt-map-label { font-size: 9.5px; }
+/* Beyond the ship's actual Jump Rating (see DestinationMapApp's
+   shipJumpRating, separate from the map's own adjustable "Jump range"
+   scouting filter) — still shown and still clickable (it warns instead of
+   silently doing nothing), just visibly dimmed and cursor-flagged so a GM
+   scouting farther out isn't surprised by the warning. */
+#tt-root .tt-map-world.tt-map-outofrange { opacity: 0.4; }
+#tt-root .tt-map-world.tt-map-outofrange:hover circle { stroke: var(--red); }
+#tt-root .tt-map-world.tt-map-outofrange:hover { cursor: not-allowed; }
 
 /* Authentic map: travellermap.com's own fetched SVG as the visual layer,
    with a same-sized transparent overlay SVG on top carrying just our
@@ -354,12 +378,18 @@
    centered narrower inside it, the overlay (sized to 100% of this
    container) would stretch wider than the map and misalign every hit
    target again. */
-#tt-root .tt-map-authentic { position: relative; display: inline-block; border-radius: 4px; overflow: hidden; vertical-align: top; }
-#tt-root .tt-map-authentic > svg:not(.tt-map-overlay) { max-width: 100%; max-height: 520px; width: auto; height: auto; display: block; }
+#tt-root .tt-map-authentic { position: relative; display: inline-block; height: 100%; border-radius: 4px; overflow: hidden; vertical-align: top; }
+#tt-root .tt-map-authentic > svg:not(.tt-map-overlay) { max-width: 100%; max-height: 100%; width: auto; height: 100%; display: block; }
 #tt-root .tt-map-overlay { position: absolute; inset: 0; width: 100%; height: 100%; }
 #tt-root .tt-map-hit { fill: transparent; stroke: none; pointer-events: all; }
 #tt-root .tt-map-hit:not(.tt-map-origin) { cursor: pointer; }
 #tt-root .tt-map-hit:not(.tt-map-origin):hover { fill: rgba(255,255,255,0.14); stroke: var(--gold); stroke-width: 2; }
+/* Beyond the ship's actual Jump Rating — see the .tt-map-world rules above
+   for why this is dimmed rather than disabled outright. The authentic
+   map's own underlying image can't be dimmed (it's travellermap.com's
+   fetched picture, not ours to restyle), so this only affects the
+   invisible hit-target overlay's hover feedback. */
+#tt-root .tt-map-hit.tt-map-outofrange:hover { fill: rgba(193,68,60,0.22); stroke: var(--red); cursor: not-allowed; }
 #tt-root .tt-map-tooltip {
   position: absolute;
   z-index: 60;

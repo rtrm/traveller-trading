@@ -5,7 +5,7 @@ import {
 } from "./data.mjs";
 import { PASSENGER_CATEGORIES, passengerCategoryInfo, passengerIncome, RECURRING_COST_PERIODS } from "./constants.mjs";
 import { TradingWindowBase, customSelectHtml, esc, fmtCr, createDialogV2 } from "./window-base.mjs";
-import { resolveLocation, openDestinationMapApp, pickLocationCandidate } from "./destination-map.mjs";
+import { openDestinationMapApp, resolveAndRememberLocation } from "./destination-map.mjs";
 import { generatePassengers } from "./passenger-gen.mjs";
 import { generateFreight, LOT_SIZES } from "./freight-gen.mjs";
 import { addOrMergeCargo, removeCargoQuantity } from "./cargo-utils.mjs";
@@ -313,19 +313,14 @@ class ShipApp extends TradingWindowBase {
   async _action_choose_destination() {
     if (!canEdit(this.doc)) { ui.notifications.warn("You don't have permission to edit this."); return; }
     const ship = getShipData(this.doc);
-    if (!(ship.location || "").trim()) { ui.notifications.warn("Set a Current Location first."); return; }
-    const candidates = await resolveLocation(ship.location);
-    if (!candidates.length) { ui.notifications.warn(`Couldn't find "${ship.location}" on Traveller Map.`); return; }
-    let origin = candidates[0];
-    if (candidates.length > 1) {
-      origin = await pickLocationCandidate(candidates);
-      if (!origin) return;
-    }
+    const origin = await resolveAndRememberLocation(this.doc, "location");
+    if (!origin) return;
     openDestinationMapApp({
       docId: this.docId,
       originSector: origin.sector,
       originHex: origin.hex,
       initialJump: ship.jumpRating ?? 2,
+      shipJumpRating: ship.jumpRating,
       onPick: async ({ sector, hex, name }) => {
         const freshShip = getShipData(this.doc);
         freshShip.destination = `${name} (${sector} ${hex})`;
@@ -480,10 +475,10 @@ class ShipApp extends TradingWindowBase {
   // hold space, shared with regular cargo and anything already aboard).
   async _action_generate_freight() {
     if (!canEdit(this.doc)) { ui.notifications.warn("You don't have permission to edit this."); return; }
-    const ship = getShipData(this.doc);
-    const endpoints = await this._resolveTripEndpoints(ship);
+    const endpoints = await this._resolveTripEndpoints();
     if (!endpoints) return;
     const { origin, destination } = endpoints;
+    const ship = getShipData(this.doc);
 
     let generation;
     try {
@@ -848,25 +843,11 @@ class ShipApp extends TradingWindowBase {
   // which both roll against the same trip. Returns null (after already
   // warning the user) if either field is unset, unresolvable, or the
   // disambiguation dialog is cancelled.
-  async _resolveTripEndpoints(ship) {
-    if (!(ship.location || "").trim()) { ui.notifications.warn("Set a Current Location first."); return null; }
-    if (!(ship.destination || "").trim()) { ui.notifications.warn("Set a Destination first."); return null; }
-
-    const originCandidates = await resolveLocation(ship.location);
-    if (!originCandidates.length) { ui.notifications.warn(`Couldn't find "${ship.location}" on Traveller Map.`); return null; }
-    let origin = originCandidates[0];
-    if (originCandidates.length > 1) {
-      origin = await pickLocationCandidate(originCandidates);
-      if (!origin) return null;
-    }
-
-    const destCandidates = await resolveLocation(ship.destination);
-    if (!destCandidates.length) { ui.notifications.warn(`Couldn't find "${ship.destination}" on Traveller Map.`); return null; }
-    let destination = destCandidates[0];
-    if (destCandidates.length > 1) {
-      destination = await pickLocationCandidate(destCandidates);
-      if (!destination) return null;
-    }
+  async _resolveTripEndpoints() {
+    const origin = await resolveAndRememberLocation(this.doc, "location");
+    if (!origin) return null;
+    const destination = await resolveAndRememberLocation(this.doc, "destination");
+    if (!destination) return null;
     return { origin, destination };
   }
 
@@ -875,10 +856,10 @@ class ShipApp extends TradingWindowBase {
   // the records and posting one combined payment.
   async _action_generate_passengers() {
     if (!canEdit(this.doc)) { ui.notifications.warn("You don't have permission to edit this."); return; }
-    const ship = getShipData(this.doc);
-    const endpoints = await this._resolveTripEndpoints(ship);
+    const endpoints = await this._resolveTripEndpoints();
     if (!endpoints) return;
     const { origin, destination } = endpoints;
+    const ship = getShipData(this.doc);
 
     let generation;
     try {

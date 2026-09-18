@@ -1,7 +1,7 @@
 import { TRADE_GOODS_FOLDER, DEFAULT_ITEM_ICON } from "./constants.mjs";
 import { getFinanceDoc, postTransaction, getShipData, saveShipData, canEdit, gameDayIndex } from "./data.mjs";
 import { TradingWindowBase, esc, fmtCr, createDialogV2 } from "./window-base.mjs";
-import { resolveLocation, pickLocationCandidate } from "./destination-map.mjs";
+import { resolveAndRememberLocation } from "./destination-map.mjs";
 import { fetchWorldInfo } from "./travel-roll-utils.mjs";
 import { addOrMergeCargo, removeCargoQuantity, cargoSpaceUsage } from "./cargo-utils.mjs";
 import {
@@ -234,13 +234,8 @@ class TradeMarketApp extends TradingWindowBase {
     this.loadError = "";
     this.world = null;
     if (!this.shipLocation.trim()) { this.loadError = "Set a Current Location on the Configuration tab first."; return; }
-    const candidates = await resolveLocation(this.shipLocation);
-    if (!candidates.length) { this.loadError = `Couldn't find "${this.shipLocation}" on Traveller Map.`; return; }
-    let picked = candidates[0];
-    if (candidates.length > 1) {
-      picked = await pickLocationCandidate(candidates);
-      if (!picked) { this.loadError = "No location selected."; return; }
-    }
+    const picked = await resolveAndRememberLocation(this.doc, "location", { silent: true });
+    if (!picked) { this.loadError = `Couldn't find "${this.shipLocation}" on Traveller Map.`; return; }
     try {
       this.world = await fetchWorldInfo(picked.sector, picked.hex);
       if (!this.world) this.loadError = `Couldn't find ${picked.sector} ${picked.hex} on Traveller Map.`;

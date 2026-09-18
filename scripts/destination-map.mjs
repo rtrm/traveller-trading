@@ -2,6 +2,8 @@ import { esc, createDialogV2 } from "./window-base.mjs";
 import { TradingWindowBase } from "./window-base.mjs";
 import { MODULE_ID } from "./constants.mjs";
 import { TRADE_CODES, describeUwp, worldTradeCodes } from "./trade-data.mjs";
+import { getShipData, saveShipData } from "./data.mjs";
+import { hexDistance } from "./travel-roll-utils.mjs";
 
 // Traveller Map's own supported milieux (from its /api/milieux endpoint —
 // checked live; this module has no way to keep this list itself in sync if
@@ -208,6 +210,45 @@ export function pickLocationCandidate(candidates) {
   });
 }
 
+// Resolves a ship document's free-text location field (normally "location"
+// or "destination") to a {name, sector, hex} candidate — disambiguating via
+// pickLocationCandidate() if the name matches more than one world — and, if
+// disambiguation actually happened (or the text was otherwise just a bare
+// name), rewrites the field to the unambiguous "Name (Sector HHHH)" form so
+// resolveLocation() takes its fast, no-prompt parenthesized-text path next
+// time instead of re-querying and re-prompting. Returns the candidate, or
+// null (after already warning the user, unless silent) if the field is
+// unset, unresolvable, or the disambiguation dialog is cancelled.
+export async function resolveAndRememberLocation(doc, fieldKey, { silent = false } = {}) {
+  const ship = getShipData(doc);
+  const text = (ship[fieldKey] || "").trim();
+  if (!text) {
+    if (!silent) ui.notifications.warn(fieldKey === "destination" ? "Set a Destination first." : "Set a Current Location first.");
+    return null;
+  }
+  const candidates = await resolveLocation(text);
+  if (!candidates.length) {
+    if (!silent) ui.notifications.warn(`Couldn't find "${text}" on Traveller Map.`);
+    return null;
+  }
+  let picked = candidates[0];
+  if (candidates.length > 1) {
+    picked = await pickLocationCandidate(candidates);
+    if (!picked) return null;
+  }
+  const canonical = `${picked.name} (${picked.sector} ${picked.hex})`;
+  if (canonical !== text) {
+    const freshShip = getShipData(doc);
+    // Someone else may have edited this same field while the disambiguation
+    // dialog was open — only overwrite if it still holds the text just resolved.
+    if ((freshShip[fieldKey] || "").trim() === text) {
+      freshShip[fieldKey] = canonical;
+      await saveShipData(doc, freshShip);
+    }
+  }
+  return picked;
+}
+
 export async function fetchJumpWorlds(sector, hex, jump) {
   const res = await fetch(`https://travellermap.com/api/jumpworlds?sector=${encodeURIComponent(sector)}&hex=${encodeURIComponent(hex)}&jump=${jump}&milieu=${encodeURIComponent(currentMilieu())}`);
   if (!res.ok) throw new Error(`Traveller Map returned ${res.status}`);
@@ -294,40 +335,62 @@ let instance = null;
 // invoked with {sector, hex, name} when a system is clicked; the caller
 // decides what to do with it (normally: save it as the ship's
 // destination) — this module only renders the map and reports the click.
-export function openDestinationMapApp({ docId, originSector, originHex, initialJump, onPick }) {
+// shipJumpRating (the ship's actual Jump-N, separate from the map's own
+// freely-adjustable "Jump range" scouting filter below) blocks picking
+// anything the ship couldn't reach in one real jump — pass null/undefined
+// to skip that check entirely (e.g. if the ship's rating is unknown).
+export function openDestinationMapApp({ docId, originSector, originHex, initialJump, shipJumpRating, onPick }) {
   if (instance && instance.rendered && instance.docId === docId) { instance.bringToFront(); return instance; }
   if (instance) instance.close();
-  instance = new DestinationMapApp({ docId, originSector, originHex, initialJump, onPick });
+  instance = new DestinationMapApp({ docId, originSector, originHex, initialJump, shipJumpRating, onPick });
   instance.render(true);
   return instance;
 }
 
 class DestinationMapApp extends TradingWindowBase {
-  constructor({ docId, originSector, originHex, initialJump, onPick }, options) {
+  constructor({ docId, originSector, originHex, initialJump, shipJumpRating, onPick }, options) {
     super(options);
     this.docId = docId;
     this.originSector = originSector;
     this.originHex = originHex;
     this.onPick = onPick;
     // Seeded from the ship's own Jump Rating, but freely changeable here —
-    // this only sets the map's starting range, it's never written back.
+    // this only sets the map's own display/fetch range (for scouting
+    // farther out), it's never written back and is NOT what enforces the
+    // ship's real jump limit — see shipJumpRating below for that.
     const seed = Number(initialJump);
     this.jump = Math.max(0, Math.min(6, Number.isFinite(seed) ? seed : 2));
+    // The ship's actual Jump-N, held separately from the adjustable filter
+    // above so raising "Jump range" to scout farther doesn't also loosen
+    // what's actually selectable as a destination.
+    const rating = Number(shipJumpRating);
+    this.shipJumpRating = Number.isFinite(rating) && rating >= 0 ? rating : null;
     this.worlds = [];
     this.loadError = "";
     this.authentic = null; // {svgMarkup, viewBox, offsetX, offsetY} when the real travellermap.com render worked
     this.zoom = 1;
+    this.panX = 0;
+    this.panY = 0;
   }
 
+  // A fixed starting size (not "auto") so the window is resizable in
+  // practice: an "auto" height gets recomputed from content on every
+  // re-render (see the old _renderContent comment this replaced), which
+  // fights any manual resize the GM makes. The map itself now fills
+  // whatever space .tt-map-canvas ends up with (see the CSS), so a bigger
+  // window means a bigger map instead of just more empty space around a
+  // fixed-size one.
   static DEFAULT_OPTIONS = {
     id: "tt-destination-map-app",
     classes: ["traveller-trading-window"],
     window: { title: "Choose Destination", resizable: true },
-    position: { width: 780, height: "auto" }
+    position: { width: 780, height: 640 }
   };
 
   async close(options) {
     instance = null;
+    if (this._panMouseMove) window.removeEventListener("mousemove", this._panMouseMove);
+    if (this._panMouseUp) window.removeEventListener("mouseup", this._panMouseUp);
     return super.close(options);
   }
 
@@ -338,6 +401,10 @@ class DestinationMapApp extends TradingWindowBase {
   async _fetchWorlds() {
     this.loadError = "";
     this.authentic = null;
+    // A new jump range re-centers the map on the origin, so any previous
+    // pan offset would leave the view looking arbitrarily off-center.
+    this.panX = 0;
+    this.panY = 0;
     try {
       this.worlds = await fetchJumpWorlds(this.originSector, this.originHex, this.jump);
     } catch (err) {
@@ -431,10 +498,11 @@ class DestinationMapApp extends TradingWindowBase {
 
     const hits = this.worlds.map(world => {
       const isOrigin = world.Hex === this.originHex && world.Sector === this.originSector;
+      const outOfRange = !isOrigin && this._beyondShipRange(world.Sector, world.Hex);
       const p = worldToPixel(world.WorldX ?? 0, world.WorldY ?? 0, JUMPMAP_SCALE);
       const cx = p.x + offsetX, cy = p.y + offsetY;
       return `
-        <circle class="tt-map-hit ${isOrigin ? "tt-map-origin" : ""}"
+        <circle class="tt-map-hit ${isOrigin ? "tt-map-origin" : ""} ${outOfRange ? "tt-map-outofrange" : ""}"
           data-tt-map-world
           data-name="${esc(world.Name || "(unnamed)")}"
           data-sector="${esc(world.Sector || "")}"
@@ -455,6 +523,14 @@ class DestinationMapApp extends TradingWindowBase {
     this._wireMapInteractions();
   }
 
+  // Combined pan+zoom transform for the shared .tt-map-zoom wrapper — used
+  // both for the initial render and every subsequent wheel/drag update, so
+  // the two always agree on ordering (translate in screen-space pixels,
+  // then scale).
+  _zoomTransform() {
+    return `translate(${this.panX}px, ${this.panY}px) scale(${this.zoom})`;
+  }
+
   async _onRender(context, options) {
     await super._onRender(context, options);
     this.root.addEventListener("change", async (e) => {
@@ -464,19 +540,52 @@ class DestinationMapApp extends TradingWindowBase {
         this._renderContent();
       }
     });
-    // Scaling the shared zoom wrapper directly (no re-render) keeps this
-    // smooth and, for the authentic map, keeps the invisible click overlay
-    // pixel-perfectly aligned with the real map underneath — both are
-    // descendants of the same wrapper, so one CSS transform scales them
-    // together instead of needing to recompute either one's coordinates.
+    // Scaling/translating the shared zoom wrapper directly (no re-render)
+    // keeps this smooth and, for the authentic map, keeps the invisible
+    // click overlay pixel-perfectly aligned with the real map underneath —
+    // both are descendants of the same wrapper, so one CSS transform moves
+    // them together instead of needing to recompute either one's
+    // coordinates.
     this.root.addEventListener("wheel", (e) => {
       const canvas = this.root.querySelector(".tt-map-canvas");
       const zoomEl = this.root.querySelector("[data-tt-map-zoom]");
       if (!canvas || !zoomEl || !canvas.contains(e.target)) return;
       e.preventDefault();
       this.zoom = Math.max(0.5, Math.min(3, this.zoom + (e.deltaY < 0 ? 0.15 : -0.15)));
-      zoomEl.style.transform = `scale(${this.zoom})`;
+      zoomEl.style.transform = this._zoomTransform();
     }, { passive: false });
+
+    // Click-and-drag panning. mousemove/mouseup listen on `window` (not
+    // just the canvas) since a fast drag can carry the pointer outside the
+    // canvas — or even outside the app window — before it's released, and
+    // the drag should still track and end correctly. A world marker's own
+    // click handler (_wireMapInteractions) checks _dragPanned afterward so
+    // a drag that passed over a marker doesn't also select it as the
+    // destination.
+    let dragStart = null; // {x, y, panX, panY}
+    this._panMouseMove = (e) => {
+      if (!dragStart) return;
+      const dx = e.clientX - dragStart.x, dy = e.clientY - dragStart.y;
+      if (!this._dragPanned && Math.hypot(dx, dy) < 4) return;
+      this._dragPanned = true;
+      this.panX = dragStart.panX + dx;
+      this.panY = dragStart.panY + dy;
+      const zoomEl = this.root.querySelector("[data-tt-map-zoom]");
+      if (zoomEl) zoomEl.style.transform = this._zoomTransform();
+    };
+    this._panMouseUp = () => {
+      dragStart = null;
+      this.root.querySelector(".tt-map-canvas")?.classList.remove("tt-panning");
+    };
+    this.root.addEventListener("mousedown", (e) => {
+      const canvas = this.root.querySelector(".tt-map-canvas");
+      if (e.button !== 0 || !canvas || !canvas.contains(e.target)) return;
+      dragStart = { x: e.clientX, y: e.clientY, panX: this.panX, panY: this.panY };
+      this._dragPanned = false;
+      canvas.classList.add("tt-panning");
+    });
+    window.addEventListener("mousemove", this._panMouseMove);
+    window.addEventListener("mouseup", this._panMouseUp);
   }
 
   _renderContent() {
@@ -497,13 +606,16 @@ class DestinationMapApp extends TradingWindowBase {
     // the map; only the map content itself (and, for the authentic path,
     // the overlay appended into it below) does.
     const bodyHtml = hasMap
-      ? `<div class="tt-map-zoom" data-tt-map-zoom style="transform: scale(${this.zoom});">${mapHtml}</div>
+      ? `<div class="tt-map-zoom" data-tt-map-zoom style="transform: ${this._zoomTransform()};">${mapHtml}</div>
          <div class="tt-map-tooltip" data-tt-map-tooltip hidden></div>`
       : mapHtml;
 
+    const rangeNote = this.shipJumpRating === null
+      ? ""
+      : ` Dimmed systems are farther than this ship's Jump-${this.shipJumpRating} and can't be set as the destination.`;
     this.root.innerHTML = `
       <div class="tt-destmap">
-        <p class="tt-hint">Worlds within jump range of ${esc(this.originSector)} ${esc(this.originHex)}. Hover a system for its UWP and trade codes; click one to set it as the destination. Scroll to zoom.</p>
+        <p class="tt-hint">Worlds within jump range of ${esc(this.originSector)} ${esc(this.originHex)}. Hover a system for its UWP and trade codes; click one to set it as the destination. Drag to pan, scroll to zoom.${rangeNote}</p>
         <div class="tt-inline-row" style="margin-bottom:10px;">
           <label style="font-size:12.5px;color:var(--text-muted);">Jump range</label>
           <input type="number" data-tt-jump-range min="0" max="6" value="${this.jump}" class="tt-input" style="width:60px;">
@@ -519,12 +631,9 @@ class DestinationMapApp extends TradingWindowBase {
       if (this.authentic) this._calibrateAndInjectOverlay();
       else this._wireMapInteractions();
     }
-    // The window's own "auto" height is only computed once, at first
-    // render — re-request it here too, since every jump-range change (and
-    // the map's own capped max-height) changes how tall the content
-    // actually is, and a stale fixed height otherwise leaves the window
-    // either clipping the map or towering over it with empty space.
-    this.setPosition({ height: "auto" });
+    // Height is a fixed, GM-resizable value (see DEFAULT_OPTIONS) — not
+    // re-requested as "auto" here, since the map now fills .tt-map-canvas
+    // via CSS instead of driving the window's size from its own content.
   }
 
   // Renders travellermap.com's own SVG as the visual background. The
@@ -561,10 +670,11 @@ class DestinationMapApp extends TradingWindowBase {
 
     const dots = positioned.map(({ world, px }) => {
       const isOrigin = world.Hex === this.originHex && world.Sector === this.originSector;
+      const outOfRange = !isOrigin && this._beyondShipRange(world.Sector, world.Hex);
       const color = isOrigin ? style.origin : style[zoneColorKey(world.Zone)];
       const starport = (world.UWP || "?").charAt(0);
       return `
-        <g class="tt-map-world ${isOrigin ? "tt-map-origin" : ""}"
+        <g class="tt-map-world ${isOrigin ? "tt-map-origin" : ""} ${outOfRange ? "tt-map-outofrange" : ""}"
            data-tt-map-world
            data-name="${esc(world.Name || "(unnamed)")}"
            data-sector="${esc(world.Sector || "")}"
@@ -625,10 +735,39 @@ class DestinationMapApp extends TradingWindowBase {
       g.addEventListener("mouseleave", () => { tooltip.hidden = true; });
       if (!g.classList.contains("tt-map-origin")) {
         g.addEventListener("click", () => {
+          // A click-drag pan that happened to pass over this marker fires a
+          // native click on mouseup too — don't treat that as picking it.
+          if (this._dragPanned) return;
+          if (this._beyondShipRange(g.dataset.sector, g.dataset.hex)) {
+            ui.notifications.warn(`${g.dataset.name} is ${this._distanceTo(g.dataset.sector, g.dataset.hex)} parsecs away — beyond this ship's Jump-${this.shipJumpRating} range for a single jump.`);
+            return;
+          }
           this.onPick({ sector: g.dataset.sector, hex: g.dataset.hex, name: g.dataset.name });
           this.close();
         });
       }
     });
+  }
+
+  // Looks up a world's own WorldX/WorldY (needed for hexDistance) among the
+  // ones already fetched for this map, by sector/hex.
+  _worldAt(sector, hex) {
+    return this.worlds.find(w => w.Sector === sector && w.Hex === hex) || null;
+  }
+
+  _distanceTo(sector, hex) {
+    const origin = this._worldAt(this.originSector, this.originHex);
+    const target = this._worldAt(sector, hex);
+    if (!origin || !target) return null;
+    return hexDistance(origin, target);
+  }
+
+  // True only when the ship's real Jump Rating is known AND the target is
+  // farther than it — the map's own "Jump range" filter above is a
+  // separate, freely-adjustable scouting range and doesn't loosen this.
+  _beyondShipRange(sector, hex) {
+    if (this.shipJumpRating === null) return false;
+    const distance = this._distanceTo(sector, hex);
+    return distance !== null && distance > this.shipJumpRating;
   }
 }
