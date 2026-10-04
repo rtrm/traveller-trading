@@ -252,13 +252,22 @@ function hexPoints(cx, cy, r) {
   return pts.join(" ");
 }
 
+// A regular hex-pyramid's own geometry makes every gore slightly WIDER than
+// tall (HEX_SPACING_Y/HEX_SPACING_X ~ 0.87, a fixed ratio GORE_HEIGHT can't
+// change), which reads as a gentle scalloped blob rather than the tall,
+// sharp zigzag spikes real Traveller world maps use. Applied only here as a
+// single SVG group transform - hex adjacency/terrain generation above runs
+// entirely on the unstretched positions, so this is purely cosmetic and
+// can't affect which hexes count as neighbors.
+const Y_STRETCH = 2;
+
 export function renderWorldMapSvg(hexes, worldName) {
   const pad = HEX_RADIUS * 2;
   const xs = hexes.map(h => h.px), ys = hexes.map(h => h.py);
   const minX = Math.min(...xs), maxX = Math.max(...xs);
   const minY = Math.min(...ys), maxY = Math.max(...ys);
   const mapW = (maxX - minX) + pad * 2;
-  const mapH = (maxY - minY) + pad * 2;
+  const mapH = ((maxY - minY) + pad * 2) * Y_STRETCH;
 
   const used = new Set(hexes.map(h => h.terrain));
   const legendEntries = Object.entries(TERRAIN_STYLES).filter(([key]) => used.has(key));
@@ -267,6 +276,10 @@ export function renderWorldMapSvg(hexes, worldName) {
   const totalW = mapW + legendW;
   const totalH = Math.max(mapH, legendEntries.length * legendRowH + pad);
 
+  // Hex centers AND each hex's own shape (via hexPoints) scale together
+  // under the group's own transform below, so they stay seamlessly tiled -
+  // stretching just the center positions while leaving each hex's own
+  // radius alone would tear visible gaps open between rows.
   const hexesHtml = hexes.map(h => {
     const x = h.px - minX + pad;
     const y = h.py - minY + pad;
@@ -284,7 +297,7 @@ export function renderWorldMapSvg(hexes, worldName) {
   return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${totalW.toFixed(1)} ${totalH.toFixed(1)}" width="${totalW.toFixed(0)}" height="${totalH.toFixed(0)}">
     <rect x="0" y="0" width="${totalW}" height="${totalH}" fill="#f0f4f7"/>
     <title>${esc(worldName || "World")} - procedurally generated surface map</title>
-    ${hexesHtml}
+    <g transform="scale(1, ${Y_STRETCH})">${hexesHtml}</g>
     ${legendHtml}
   </svg>`;
 }
