@@ -18,9 +18,24 @@ import { esc } from "./window-base.mjs";
 // module's own design, not a reproduction of anyone else's rules or code.
 // ---------------------------------------------------------------------------
 
-const COLS = 17;
-const ROWS = 13;
-const HEX_RADIUS = 16;
+// Traveller world maps conventionally unwrap the globe's hex grid into a
+// strip of alternating "gores" - triangular wedges, each one running from a
+// pole (a single hex, the tip) to the equator (its widest row, the base),
+// tiled edge-to-edge with the orientation flipped every other gore so the
+// strip's top and bottom edges zigzag instead of leaving empty corners (this
+// is the same convention the mgt2e system's own placeholder
+// systems/mgt2e/images/world-map.svg uses, confirmed by inspecting it
+// directly after the first, plain-rectangle version of this generator was
+// shown to not match it). GORE_COUNT gores side by side, each GORE_HEIGHT
+// hex-rows from tip to base.
+// Exact gore count/height weren't measured from the reference (its 2000x1050
+// canvas may include padding/framing beyond the triangle strip itself, which
+// isn't knowable without opening it in an actual SVG editor) - these two
+// constants are the easy knobs to turn if the proportions should look
+// different once you can see a real result.
+const GORE_COUNT = 5;
+const GORE_HEIGHT = 9;
+const HEX_RADIUS = 14;
 
 const TERRAIN_STYLES = {
   ocean: { label: "Ocean", color: "#1b4f72" },
@@ -36,32 +51,56 @@ const TERRAIN_STYLES = {
 };
 
 // ---------------------------------------------------------------------------
-// Hex grid (flat-top, offset columns, no wraparound - a flat projection,
-// not a true sphere).
+// Hex grid: GORE_COUNT pointed triangular gores tiled side by side, each
+// GORE_HEIGHT hex-rows tall, orientation alternating (tip-up / tip-down) so
+// adjacent gores interlock with no gaps. Each hex's pixel center is computed
+// once at build time; adjacency is then found by proximity between those
+// centers rather than by index arithmetic, since the tapering row widths
+// make index-based neighbor math error-prone to hand-derive correctly -
+// distance-based lookup is simple and can't get the geometry wrong because
+// it works directly off the actual rendered positions.
 // ---------------------------------------------------------------------------
+
+const HEX_SPACING_X = HEX_RADIUS * Math.sqrt(3);
+const HEX_SPACING_Y = HEX_RADIUS * 1.5;
 
 function buildGrid() {
   const hexes = [];
-  for (let col = 0; col < COLS; col++) {
-    for (let row = 0; row < ROWS; row++) {
-      hexes.push({ col, row, terrain: null });
+  for (let gore = 0; gore < GORE_COUNT; gore++) {
+    const tipUp = gore % 2 === 0; // alternate orientation so gores interlock
+    const goreLeft = gore * GORE_HEIGHT * HEX_SPACING_X;
+    const goreCenterX = goreLeft + (GORE_HEIGHT * HEX_SPACING_X) / 2;
+    for (let localRow = 0; localRow < GORE_HEIGHT; localRow++) {
+      // tip-up: row 0 is the 1-hex tip (pole), row GORE_HEIGHT-1 is the
+      // full-width base (equator). tip-down is the mirror image.
+      const rowCount = tipUp ? localRow + 1 : GORE_HEIGHT - localRow;
+      // Distance from this row to its gore's pole-tip, 0 (at the pole) to 1
+      // (at the equator) - used for polar-ice/tundra banding below in place
+      // of a simple top/bottom row index, since "near the pole" means
+      // "near this gore's own tip", not "near the image's top/bottom edge".
+      const poleDist = tipUp ? localRow / (GORE_HEIGHT - 1) : (GORE_HEIGHT - 1 - localRow) / (GORE_HEIGHT - 1);
+      const py = localRow * HEX_SPACING_Y;
+      for (let i = 0; i < rowCount; i++) {
+        const px = goreCenterX + (i - (rowCount - 1) / 2) * HEX_SPACING_X;
+        hexes.push({ gore, localRow, px, py, poleDist, terrain: null });
+      }
     }
   }
   return hexes;
 }
 
-function hexAt(hexes, col, row) {
-  if (col < 0 || col >= COLS || row < 0 || row >= ROWS) return null;
-  return hexes[col * ROWS + row];
-}
+// Neighbor threshold: true adjacent hex centers in this layout are one
+// HEX_SPACING_X apart (same row) or one half-step diagonally (adjacent
+// row); both are comfortably under 1.1 * HEX_SPACING_X, which is what
+// distinguishes a real neighbor from the next-nearest hex over.
+const NEIGHBOR_MAX_DIST = HEX_SPACING_X * 1.1;
 
 function neighborsOf(hex, hexes) {
-  const { col, row } = hex;
-  const evenCol = col % 2 === 0;
-  const deltas = evenCol
-    ? [[0, -1], [0, 1], [-1, -1], [-1, 0], [1, -1], [1, 0]]
-    : [[0, -1], [0, 1], [-1, 0], [-1, 1], [1, 0], [1, 1]];
-  return deltas.map(([dc, dr]) => hexAt(hexes, col + dc, row + dr)).filter(Boolean);
+  return hexes.filter(h => {
+    if (h === hex) return false;
+    const dx = h.px - hex.px, dy = h.py - hex.py;
+    return Math.sqrt(dx * dx + dy * dy) <= NEIGHBOR_MAX_DIST;
+  });
 }
 
 function pickRandom(arr) {
@@ -136,15 +175,18 @@ export function generateWorldTerrain({ size, atmosphere, hydrographics }) {
   // Polar ice: thinner atmospheres hold less heat, so they get bigger caps.
   // A size-0 world (asteroid belt/tiny) or airless world (atmosphere 0) is
   // frozen almost pole-to-pole; a thick, good atmosphere keeps caps small.
-  let iceRows;
-  if (size === 0 || atmosphere === 0) iceRows = 4;
-  else if (atmosphere <= 3) iceRows = 3;
-  else if (atmosphere <= 6) iceRows = 2;
-  else if (atmosphere <= 9) iceRows = 1;
-  else iceRows = 0;
-  if (iceRows > 0) {
+  // Expressed as a fraction of each gore's pole-to-equator span (poleDist,
+  // see buildGrid) rather than a row count, since "near the pole" means
+  // "close to this gore's own tip", not a fixed row index.
+  let icePoleFraction;
+  if (size === 0 || atmosphere === 0) icePoleFraction = 0.45;
+  else if (atmosphere <= 3) icePoleFraction = 0.35;
+  else if (atmosphere <= 6) icePoleFraction = 0.2;
+  else if (atmosphere <= 9) icePoleFraction = 0.1;
+  else icePoleFraction = 0;
+  if (icePoleFraction > 0) {
     for (const h of hexes) {
-      if (h.row < iceRows || h.row >= ROWS - iceRows) h.terrain = "iceCap";
+      if (h.poleDist <= icePoleFraction) h.terrain = "iceCap";
     }
   }
 
@@ -186,25 +228,24 @@ export function generateWorldTerrain({ size, atmosphere, hydrographics }) {
 // SVG rendering
 // ---------------------------------------------------------------------------
 
+// Pointy-top vertices (point at top and bottom) - matches HEX_SPACING_X/Y
+// above, which are the standard spacing constants for that orientation.
 function hexPoints(cx, cy, r) {
   const pts = [];
   for (let i = 0; i < 6; i++) {
-    const a = (Math.PI / 3) * i;
+    const a = (Math.PI / 3) * i - Math.PI / 2;
     pts.push(`${(cx + r * Math.cos(a)).toFixed(1)},${(cy + r * Math.sin(a)).toFixed(1)}`);
   }
   return pts.join(" ");
 }
 
-function hexCenter(col, row) {
-  const x = col * HEX_RADIUS * 1.5;
-  const y = row * HEX_RADIUS * Math.sqrt(3) + (col % 2 === 1 ? (HEX_RADIUS * Math.sqrt(3)) / 2 : 0);
-  return { x, y };
-}
-
 export function renderWorldMapSvg(hexes, worldName) {
   const pad = HEX_RADIUS * 2;
-  const mapW = COLS * HEX_RADIUS * 1.5 + pad;
-  const mapH = ROWS * HEX_RADIUS * Math.sqrt(3) + pad;
+  const xs = hexes.map(h => h.px), ys = hexes.map(h => h.py);
+  const minX = Math.min(...xs), maxX = Math.max(...xs);
+  const minY = Math.min(...ys), maxY = Math.max(...ys);
+  const mapW = (maxX - minX) + pad * 2;
+  const mapH = (maxY - minY) + pad * 2;
 
   const used = new Set(hexes.map(h => h.terrain));
   const legendEntries = Object.entries(TERRAIN_STYLES).filter(([key]) => used.has(key));
@@ -214,9 +255,10 @@ export function renderWorldMapSvg(hexes, worldName) {
   const totalH = Math.max(mapH, legendEntries.length * legendRowH + pad);
 
   const hexesHtml = hexes.map(h => {
-    const { x, y } = hexCenter(h.col, h.row);
+    const x = h.px - minX + pad;
+    const y = h.py - minY + pad;
     const color = TERRAIN_STYLES[h.terrain]?.color || "#444";
-    return `<polygon points="${hexPoints(x + pad / 2, y + pad / 2, HEX_RADIUS * 0.98)}" fill="${color}" stroke="#00000033" stroke-width="1"/>`;
+    return `<polygon points="${hexPoints(x, y, HEX_RADIUS * 0.98)}" fill="${color}" stroke="#00000033" stroke-width="1"/>`;
   }).join("");
 
   const legendHtml = legendEntries.map(([key, style], i) => {
