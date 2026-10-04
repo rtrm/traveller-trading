@@ -262,6 +262,9 @@
 #tt-root .tt-locbar { display: flex; align-items: center; flex-wrap: wrap; gap: 6px 8px; padding-bottom: 12px; margin-bottom: 12px; border-bottom: 1px solid var(--border); }
 #tt-root .tt-locbar label { font-size: 11px; color: var(--text-muted); font-family: "SFMono-Regular", Consolas, monospace; white-space: nowrap; }
 #tt-root .tt-locbar .tt-input { flex: 1 1 140px; min-width: 100px; }
+/* Drop target for a World actor dragged from the Actors directory onto
+   Current Location/Destination - see ship-app.mjs's dragover/_onDrop. */
+#tt-root .tt-locbar .tt-input.tt-field-dragover { outline: 2px dashed var(--gold); outline-offset: 1px; }
 
 #tt-root .tt-subtabs { display: flex; gap: 4px; border-bottom: 1px solid var(--border); margin-bottom: 12px; }
 #tt-root .tt-subtab {

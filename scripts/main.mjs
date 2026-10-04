@@ -10,11 +10,13 @@ import { refreshShipApp, closeShipAppIfOpen } from "./ship-app.mjs";
 import { closeTradeMarketAppsIfOpen, checkPendingSupplierSearches } from "./trade-app.mjs";
 import { registerDestinationMapSettings, registerPreferredSectorChoices } from "./destination-map.mjs";
 import { migrateSupplierSearches } from "./supplier-search.mjs";
+import { registerWorldImportSettings } from "./world-import.mjs";
 
 Hooks.once("init", () => {
   registerTradeGoodsSettings();
   registerPermissionsSettings();
   registerDestinationMapSettings();
+  registerWorldImportSettings();
   registerFinanceSettings();
 
   // "Use Standard Foundry Styling" — off by default, so nothing changes for

@@ -5,7 +5,7 @@ import {
 } from "./data.mjs";
 import { PASSENGER_CATEGORIES, passengerCategoryInfo, passengerIncome, RECURRING_COST_PERIODS } from "./constants.mjs";
 import { TradingWindowBase, customSelectHtml, esc, fmtCr, createDialogV2 } from "./window-base.mjs";
-import { openDestinationMapApp, resolveAndRememberLocation } from "./destination-map.mjs";
+import { openDestinationMapApp, resolveAndRememberLocation, formatHex } from "./destination-map.mjs";
 import { generatePassengers } from "./passenger-gen.mjs";
 import { generateFreight, LOT_SIZES } from "./freight-gen.mjs";
 import { addOrMergeCargo, removeCargoQuantity } from "./cargo-utils.mjs";
@@ -209,8 +209,20 @@ class ShipApp extends TradingWindowBase {
   async _onRender(context, options) {
     await super._onRender(context, options);
     this.root.addEventListener("dragenter", (e) => e.preventDefault());
-    this.root.addEventListener("dragover", (e) => e.preventDefault());
-    this.root.addEventListener("drop", (e) => this._onDrop(e));
+    this.root.addEventListener("dragover", (e) => {
+      e.preventDefault();
+      const field = e.target.closest('[data-tt-field="ship.location"], [data-tt-field="ship.destination"]');
+      this.root.querySelectorAll(".tt-field-dragover").forEach(el => { if (el !== field) el.classList.remove("tt-field-dragover"); });
+      field?.classList.add("tt-field-dragover");
+    });
+    this.root.addEventListener("dragleave", (e) => {
+      const field = e.target.closest('[data-tt-field="ship.location"], [data-tt-field="ship.destination"]');
+      if (field && !field.contains(e.relatedTarget)) field.classList.remove("tt-field-dragover");
+    });
+    this.root.addEventListener("drop", (e) => {
+      this.root.querySelectorAll(".tt-field-dragover").forEach(el => el.classList.remove("tt-field-dragover"));
+      this._onDrop(e);
+    });
     this.root.addEventListener("dragstart", (e) => this._onCargoDragStart(e));
     this.root.addEventListener("dragend", (e) => this._onCargoDragEnd(e));
     this.root.addEventListener("change", async (e) => {
@@ -319,6 +331,12 @@ class ShipApp extends TradingWindowBase {
     if (!ship.destination) return;
     ship.location = ship.destination;
     ship.destination = "";
+    // Carry the destination's World actor link (if any) over to Current
+    // Location along with the text, instead of leaving it pointing at the
+    // location this ship just left.
+    if (ship.destinationActorUuid) ship.locationActorUuid = ship.destinationActorUuid;
+    else delete ship.locationActorUuid;
+    delete ship.destinationActorUuid;
     await saveShipData(this.doc, ship);
     this._renderContent();
   }
@@ -341,6 +359,9 @@ class ShipApp extends TradingWindowBase {
       onPick: async ({ sector, hex, name }) => {
         const freshShip = getShipData(this.doc);
         freshShip.destination = `${name} (${sector} ${hex})`;
+        // Picked from the jump map by name/hex, not dragged from an Actor -
+        // any previously-linked World actor no longer applies.
+        delete freshShip.destinationActorUuid;
         await saveShipData(this.doc, freshShip);
         this._renderContent();
       }
@@ -625,13 +646,20 @@ class ShipApp extends TradingWindowBase {
   }
 
   // Accepts a drop anywhere in the window, regardless of which tab is
-  // currently showing — the drop is always cargo, so it's always handled
-  // and the view switches to the Cargo tab to show the result.
+  // currently showing. A dropped Actor is routed to _onDropWorldActor
+  // (Current Location/Destination linking); everything else is cargo, and
+  // the view switches to the Cargo tab to show the result.
   async _onDrop(event) {
     event.preventDefault();
     let data;
     try { data = JSON.parse(event.dataTransfer.getData("text/plain")); } catch (err) { return; }
-    if (!data?.uuid || data.type !== "Item") return;
+    if (!data?.uuid) return;
+
+    if (data.type === "Actor") {
+      await this._onDropWorldActor(event, data);
+      return;
+    }
+    if (data.type !== "Item") return;
     if (!canEdit(this.doc)) { ui.notifications.warn("You don't have permission to add cargo here."); return; }
 
     if (data.ttCargo) {
@@ -692,6 +720,30 @@ class ShipApp extends TradingWindowBase {
     }
 
     this.shipTab = "cargo";
+    this._renderContent();
+  }
+
+  // A mgt2e World actor (imported from Traveller Map via world-import.mjs,
+  // or any other "world"-type actor) dropped onto the Current Location or
+  // Destination field - resolves the field to that actor's own location
+  // instead of free text, and remembers the link (fieldActorUuid) so
+  // resolveAndRememberLocation() (destination-map.mjs) reads straight from
+  // the actor from now on rather than re-querying Traveller Map by name.
+  async _onDropWorldActor(event, data) {
+    const fieldEl = event.target.closest('[data-tt-field="ship.location"], [data-tt-field="ship.destination"]');
+    if (!fieldEl) return;
+    if (!canEdit(this.doc)) { ui.notifications.warn("You don't have permission to edit this."); return; }
+    const actor = await fromUuid(data.uuid);
+    if (!actor) return;
+    if (actor.type !== "world") { ui.notifications.warn(`${actor.name} isn't a World actor.`); return; }
+
+    const fieldKey = fieldEl.dataset.ttField.replace(/^ship\./, ""); // "location" | "destination"
+    const loc = actor.system?.world?.location || {};
+    const hex = formatHex(loc.x ?? 0, loc.y ?? 0);
+    const ship = getShipData(this.doc);
+    ship[fieldKey] = `${actor.name} (${loc.sector || ""} ${hex})`;
+    ship[`${fieldKey}ActorUuid`] = actor.uuid;
+    await saveShipData(this.doc, ship);
     this._renderContent();
   }
 
@@ -1212,7 +1264,13 @@ class ShipApp extends TradingWindowBase {
     if (!canEdit(this.doc)) { ui.notifications.warn("You don't have permission to edit this."); return; }
     const value = el.type === "checkbox" ? el.checked : (el.dataset.ttNumeric === "true" ? Number(el.value) || 0 : el.value);
     const ship = getShipData(this.doc);
-    foundry.utils.setProperty(ship, path.replace(/^ship\./, ""), value);
+    const bareKey = path.replace(/^ship\./, "");
+    foundry.utils.setProperty(ship, bareKey, value);
+    // Typing over a Current Location/Destination field invalidates any
+    // World actor previously linked there via drag-and-drop (_onDropWorldActor
+    // above) - clear it so resolveAndRememberLocation() goes back to
+    // resolving the new free text instead of the stale actor.
+    if (bareKey === "location" || bareKey === "destination") delete ship[`${bareKey}ActorUuid`];
     await saveShipData(this.doc, ship);
     this._renderContent();
   }

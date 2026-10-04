@@ -127,7 +127,7 @@ function currentStyle() {
   return MAP_STYLES[currentStyleKey()] || MAP_STYLES[DEFAULT_STYLE];
 }
 
-function formatHex(hexX, hexY) {
+export function formatHex(hexX, hexY) {
   return String(hexX).padStart(2, "0") + String(hexY).padStart(2, "0");
 }
 
@@ -222,6 +222,21 @@ export function pickLocationCandidate(candidates) {
 export async function resolveAndRememberLocation(doc, fieldKey, { silent = false } = {}) {
   const ship = getShipData(doc);
   const text = (ship[fieldKey] || "").trim();
+
+  // A World actor dragged onto this field (see ship-app.mjs's _onDrop) is the
+  // authoritative source once linked - read its own location/UWP directly
+  // rather than re-querying Traveller Map by name, and skip straight past
+  // any ambiguity a text search might hit. Falls through to the text-based
+  // path below if the linked actor's since been deleted.
+  const actorUuid = ship[`${fieldKey}ActorUuid`];
+  if (actorUuid) {
+    const actor = await fromUuid(actorUuid);
+    if (actor && actor.type === "world") {
+      const loc = actor.system?.world?.location || {};
+      return { name: actor.name, sector: loc.sector || "", hex: formatHex(loc.x ?? 0, loc.y ?? 0) };
+    }
+  }
+
   if (!text) {
     if (!silent) ui.notifications.warn(fieldKey === "destination" ? "Set a Destination first." : "Set a Current Location first.");
     return null;
