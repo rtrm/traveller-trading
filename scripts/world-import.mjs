@@ -247,9 +247,41 @@ function findExistingWorldActor(sector, hex, milieu) {
   });
 }
 
+// Stars are NOT a field on the World actor itself - the system's own sheet
+// (mgt2e/module/sheets/actors/world.mjs, _createStar()) represents each one
+// as an embedded Item of type "worlddata" with system.world.datatype="star",
+// spectralType (the combined class+subtype, e.g. "F7") and luminosityClass
+// (e.g. "V"). Confirmed directly from that file after the first pass of
+// this module wrongly assumed stellar data had nowhere to go but a flag.
+function starItemCreateData(star, index) {
+  // A lone "D"/"BD" token (white/brown dwarf, see parseStellar) has no
+  // separate luminosity class of its own - the type itself IS the class.
+  const spectralType = star.spectralClass ? `${star.spectralClass}${star.spectralSubtype}` : (star.raw && !star.luminosityClass ? star.raw : "");
+  const luminosityClass = star.luminosityClass || "";
+  const label = index === 0 ? "Primary" : `Companion ${index}`;
+  const designation = [spectralType, luminosityClass].filter(Boolean).join(" ") || star.raw || "?";
+  return {
+    name: `${label} (${designation})`,
+    type: "worlddata",
+    system: { world: { datatype: "star", spectralType, luminosityClass } }
+  };
+}
+
+// Replaces whatever star items an actor already has with fresh ones from
+// `stellar` - simplest way to keep a re-import idempotent (no piling up of
+// duplicate stars across repeated imports) without trying to diff/match
+// old stars to new ones.
+async function syncStarItems(actor, stellar) {
+  const existingStarIds = actor.items
+    .filter(i => i.type === "worlddata" && i.system?.world?.datatype === "star")
+    .map(i => i.id);
+  if (existingStarIds.length) await actor.deleteEmbeddedDocuments("Item", existingStarIds);
+  if (stellar.length) await actor.createEmbeddedDocuments("Item", stellar.map(starItemCreateData));
+}
+
 // Creates or updates (in place, preserving the existing Actor's id so any
-// drag-and-drop link to it elsewhere keeps working) one world Actor per row.
-// Returns {created, updated}.
+// drag-and-drop link to it elsewhere keeps working) one world Actor per row,
+// including its star(s) as embedded Items. Returns {created, updated}.
 export async function importWorldRows(rows, sectorMeta, milieu, { onProgress } = {}) {
   if (!game.user.isGM) return { created: 0, updated: 0 };
   let created = 0, updated = 0;
@@ -257,6 +289,7 @@ export async function importWorldRows(rows, sectorMeta, milieu, { onProgress } =
   for (const row of rows) {
     if (!row.Hex || !row.Name) continue; // blank/empty hexes carry no world
     const data = mapWorldRowToActorData(row, sectorMeta, milieu);
+    const stellar = data.flags[MODULE_ID][FLAG_TRAVELLER_MAP_DATA].stellar;
     const subsectorName = data.flags[MODULE_ID][FLAG_TRAVELLER_MAP_DATA].subsectorName;
     const folderKey = subsectorName;
     let folders = folderCache.get(folderKey);
@@ -266,14 +299,15 @@ export async function importWorldRows(rows, sectorMeta, milieu, { onProgress } =
     }
     data.folder = folders.subsectorFolder.id;
 
-    const existing = findExistingWorldActor(sectorMeta.name, row.Hex, milieu);
-    if (existing) {
-      await existing.update(data);
+    let actor = findExistingWorldActor(sectorMeta.name, row.Hex, milieu);
+    if (actor) {
+      await actor.update(data);
       updated++;
     } else {
-      await Actor.create(data);
+      actor = await Actor.create(data);
       created++;
     }
+    await syncStarItems(actor, stellar);
     onProgress?.({ name: row.Name, created, updated, total: rows.length });
   }
   return { created, updated };
