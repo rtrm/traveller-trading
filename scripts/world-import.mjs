@@ -2,6 +2,7 @@ import { MODULE_ID } from "./constants.mjs";
 import { esc } from "./window-base.mjs";
 import { TradingWindowBase } from "./window-base.mjs";
 import { resolveLocation, pickLocationCandidate } from "./destination-map.mjs";
+import { generateAndSaveWorldMap } from "./world-map-gen.mjs";
 
 // ---------------------------------------------------------------------------
 // Imports worlds from travellermap.com as mgt2e "world" Actors, organized
@@ -282,7 +283,7 @@ async function syncStarItems(actor, stellar) {
 // Creates or updates (in place, preserving the existing Actor's id so any
 // drag-and-drop link to it elsewhere keeps working) one world Actor per row,
 // including its star(s) as embedded Items. Returns {created, updated}.
-export async function importWorldRows(rows, sectorMeta, milieu, { onProgress } = {}) {
+export async function importWorldRows(rows, sectorMeta, milieu, { onProgress, generateMaps = false } = {}) {
   if (!game.user.isGM) return { created: 0, updated: 0 };
   let created = 0, updated = 0;
   const folderCache = new Map();
@@ -308,6 +309,7 @@ export async function importWorldRows(rows, sectorMeta, milieu, { onProgress } =
       created++;
     }
     await syncStarItems(actor, stellar);
+    if (generateMaps) await generateAndSaveWorldMap(actor);
     onProgress?.({ name: row.Name, created, updated, total: rows.length });
   }
   return { created, updated };
@@ -366,6 +368,7 @@ class ImportWorldsApp extends TradingWindowBase {
     this.worldInput = "";
     this.resolvedSector = null; // {name, sx, sy, subsectors, allegiances}
     this.selectedSubsectorLetter = "";
+    this.generateMaps = false;
   }
 
   async close(options) {
@@ -387,6 +390,7 @@ class ImportWorldsApp extends TradingWindowBase {
     });
     this.root.addEventListener("change", (e) => {
       if (e.target.matches("[data-tt-subsector-select]")) this.selectedSubsectorLetter = e.target.value;
+      if (e.target.matches("[data-tt-generate-maps]")) this.generateMaps = e.target.checked;
     });
   }
 
@@ -464,8 +468,9 @@ class ImportWorldsApp extends TradingWindowBase {
   async _doImport(rows, sectorMeta) {
     const milieu = this._milieu();
     const { created, updated } = await importWorldRows(rows, sectorMeta, milieu, {
+      generateMaps: this.generateMaps,
       onProgress: ({ name, created, updated, total }) => {
-        this.statusHtml = `<p class="tt-hint">Importing… ${created + updated}/${total} (${esc(name)})</p>`;
+        this.statusHtml = `<p class="tt-hint">Importing… ${created + updated}/${total} (${esc(name)})${this.generateMaps ? " - generating surface map" : ""}</p>`;
         this._renderContent();
       }
     });
@@ -515,10 +520,17 @@ class ImportWorldsApp extends TradingWindowBase {
       }
     }
 
+    const generateMapsHtml = `
+      <label style="display:flex;align-items:center;gap:6px;font-size:12.5px;margin-top:10px;">
+        <input type="checkbox" data-tt-generate-maps ${this.generateMaps ? "checked" : ""} ${this.busy ? "disabled" : ""}>
+        Also generate a procedural surface map for each world
+      </label>`;
+
     this.root.innerHTML = `
       <div class="tt-world-import">
         ${tabsHtml}
         <div style="margin-top:12px;">${bodyHtml}</div>
+        ${generateMapsHtml}
         <div style="margin-top:12px;">${this.statusHtml}</div>
       </div>`;
   }

@@ -11,12 +11,14 @@ import { closeTradeMarketAppsIfOpen, checkPendingSupplierSearches } from "./trad
 import { registerDestinationMapSettings, registerPreferredSectorChoices } from "./destination-map.mjs";
 import { migrateSupplierSearches } from "./supplier-search.mjs";
 import { registerWorldImportSettings } from "./world-import.mjs";
+import { registerWorldMapGenButton } from "./world-map-gen.mjs";
 
 Hooks.once("init", () => {
   registerTradeGoodsSettings();
   registerPermissionsSettings();
   registerDestinationMapSettings();
   registerWorldImportSettings();
+  registerWorldMapGenButton();
   registerFinanceSettings();
 
   // "Use Standard Foundry Styling" — off by default, so nothing changes for
