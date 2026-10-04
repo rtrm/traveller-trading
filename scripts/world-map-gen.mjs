@@ -64,12 +64,25 @@ const TERRAIN_STYLES = {
 const HEX_SPACING_X = HEX_RADIUS * Math.sqrt(3);
 const HEX_SPACING_Y = HEX_RADIUS * 1.5;
 
+// Spacing between consecutive gores' center-lines. Derived (not guessed)
+// from the actual per-row hex formulas below: for gore g (tip-up) and gore
+// g+1 (tip-down), row r's rightmost hex in g and row r's leftmost hex in
+// g+1 are exactly HEX_SPACING_X apart (true same-row neighbors, for every
+// r simultaneously - not just at one row) when, and only when, their
+// center-lines are this far apart. An earlier version used a full
+// GORE_HEIGHT*HEX_SPACING_X "slot width" per gore instead, which left a
+// real, visible gap between triangles - this is half that, since adjacent
+// triangles are meant to interlock (overlap in bounding box), not sit in
+// separate non-overlapping slots.
+const GORE_SPACING_X = (HEX_SPACING_X * (GORE_HEIGHT + 1)) / 2;
+
 function buildGrid() {
   const hexes = [];
   for (let gore = 0; gore < GORE_COUNT; gore++) {
     const tipUp = gore % 2 === 0; // alternate orientation so gores interlock
-    const goreLeft = gore * GORE_HEIGHT * HEX_SPACING_X;
-    const goreCenterX = goreLeft + (GORE_HEIGHT * HEX_SPACING_X) / 2;
+    // Gore 0's own base row starts flush at x=0; every later gore is offset
+    // from it by GORE_SPACING_X per step.
+    const goreCenterX = ((GORE_HEIGHT - 1) * HEX_SPACING_X) / 2 + gore * GORE_SPACING_X;
     for (let localRow = 0; localRow < GORE_HEIGHT; localRow++) {
       // tip-up: row 0 is the 1-hex tip (pole), row GORE_HEIGHT-1 is the
       // full-width base (equator). tip-down is the mirror image.
