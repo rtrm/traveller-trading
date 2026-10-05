@@ -18,30 +18,33 @@ import { esc } from "./window-base.mjs";
 // module's own design, not a reproduction of anyone else's rules or code.
 // ---------------------------------------------------------------------------
 
-// Traveller world maps conventionally unwrap the globe's hex grid into
-// alternating "gores" - triangular wedges tiled edge-to-edge, orientation
-// flipped every other one so they interlock with no gaps. This generator's
-// band structure (3 rows of gores stacked in a plain RECTANGULAR canvas -
-// not a jagged outer silhouette) was read directly off the mgt2e system's
-// own placeholder systems/mgt2e/images/world-map.svg by tracing its actual
-// SVG path coordinates (not guessed from a screenshot):
-// its "Triangles" layer draws 3 such rows (top/middle/bottom, each spanning
-// the full width), and its "Outside" layer paints the small corner slivers
-// outside that rectangle white rather than leaving the silhouette jagged.
-// Below, the canvas is simply sized to the hexes' own bounding box and
-// given a plain background fill, which shows through any such corner on
-// its own - no separate masking needed.
+// An earlier version of this generator tiled the whole grid out of
+// alternating "gore" triangles (the globe-unwrap convention Traveller maps
+// are often drawn with), reasoning the mgt2e system's own placeholder
+// systems/mgt2e/images/world-map.svg was built the same way. That reasoning
+// was wrong: this time the actual hex-tessellation vertices were parsed out
+// of that SVG's "Hex Grid" layer (its real hexagon outlines, not the
+// separate decorative "Triangles" layer's stroke-only guide lines, which
+// turned out to be cosmetic and don't bound anything) and measured row by
+// row. The real shape is a plain, uniform-width rectangle for the top ~76%
+// of the height; only the bottom ~24% tapers, shedding very close to half a
+// hex-width per side on every row (a near-perfectly linear corner chamfer,
+// confirmed numerically - not a multi-peaked gore zigzag anywhere). The
+// earlier gore-tiled version produced a double-pinched "hourglass" profile
+// that never matched this, because its edge gores tapered to a point at
+// *both* the top and the bottom of each stacked band - verified by
+// rendering that version's own output and measuring its row widths the same
+// way, not by eyeballing a screenshot again.
 //
-// GORE_COUNT/GORE_HEIGHT (triangles across, hex-rows per triangle) are this
-// module's own choice of resolution, not a measurement - only the overall
-// image aspect ratio was actually measured (the reference's viewBox,
-// 529.167 x 277.8125, exactly matches its traced path bounds with no slack,
-// confirming there's no padding to account for: aspect = 1.905). These two
-// values are picked to land close to that while keeping reasonable hex
-// density; GORE_SPACING_X/BAND_HEIGHT below derive from them automatically.
-const GORE_COUNT = 7;
-const GORE_HEIGHT = 9;
-const BAND_COUNT = 3;
+// GRID_ROWS/GRID_COLS are this module's own choice of resolution (not a
+// measurement) picked to land close to the reference's measured aspect
+// ratio (viewBox 529.167 x 277.8125 = 1.905) while keeping a hex count
+// similar to before; TAPER_ROWS/TAPER_STEP approximate the measured bottom
+// chamfer (taper starting ~76% down, losing about half a hex-width of
+// margin per side per row).
+const GRID_COLS = 38;
+const GRID_ROWS = 23;
+const TAPER_ROWS = 6;
 const HEX_RADIUS = 14;
 
 const TERRAIN_STYLES = {
@@ -58,67 +61,41 @@ const TERRAIN_STYLES = {
 };
 
 // ---------------------------------------------------------------------------
-// Hex grid: GORE_COUNT pointed triangular gores tiled side by side, each
-// GORE_HEIGHT hex-rows tall, orientation alternating (tip-up / tip-down) so
-// adjacent gores interlock with no gaps. Each hex's pixel center is computed
-// once at build time; adjacency is then found by proximity between those
-// centers rather than by index arithmetic, since the tapering row widths
-// make index-based neighbor math error-prone to hand-derive correctly -
-// distance-based lookup is simple and can't get the geometry wrong because
-// it works directly off the actual rendered positions.
+// Hex grid: a plain offset-row rectangle (GRID_COLS wide, GRID_ROWS tall,
+// odd rows shifted half a hex right - the standard pointy-top layout), with
+// the last TAPER_ROWS rows each shedding one more hex-column from both ends
+// than the row above - the measured bottom chamfer. Each hex's pixel center
+// is computed once at build time; adjacency is found by proximity between
+// those centers rather than index arithmetic, since the tapered rows have
+// fewer columns than the rest and a shifted starting index - distance-based
+// lookup can't get that wrong because it works directly off the actual
+// rendered positions.
 // ---------------------------------------------------------------------------
 
 const HEX_SPACING_X = HEX_RADIUS * Math.sqrt(3);
 const HEX_SPACING_Y = HEX_RADIUS * 1.5;
 
-// Spacing between consecutive gores' center-lines. Derived (not guessed)
-// from the actual per-row hex formulas below: for gore g (tip-up) and gore
-// g+1 (tip-down), row r's rightmost hex in g and row r's leftmost hex in
-// g+1 are exactly HEX_SPACING_X apart (true same-row neighbors, for every
-// r simultaneously - not just at one row) when, and only when, their
-// center-lines are this far apart. An earlier version used a full
-// GORE_HEIGHT*HEX_SPACING_X "slot width" per gore instead, which left a
-// real, visible gap between triangles - this is half that, since adjacent
-// triangles are meant to interlock (overlap in bounding box), not sit in
-// separate non-overlapping slots.
-const GORE_SPACING_X = (HEX_SPACING_X * (GORE_HEIGHT + 1)) / 2;
-
-// Height of one band (tip-row to base-row span) in pixels - also the
-// vertical offset between consecutive bands, confirmed numerically before
-// writing this: band b's gore g base row and band b+1's gore g tip row
-// land at EXACTLY the same (x, y) when stacked this way (not just
-// adjacent - literally coincident), which is why each band after the
-// first skips its own row 0 below: that row is the previous band's last
-// row, not a new one.
-const BAND_HEIGHT = (GORE_HEIGHT - 1) * HEX_SPACING_Y;
-
 function buildGrid() {
   const hexes = [];
-  for (let band = 0; band < BAND_COUNT; band++) {
-    for (let gore = 0; gore < GORE_COUNT; gore++) {
-      // Orientation alternates across gores as before, but also flips
-      // between bands (band0.gore0 is tip-down, band1.gore0 is tip-up,
-      // confirmed from the reference's own path data) so each band's
-      // shared boundary row with its neighbor lines up correctly.
-      const tipUp = (gore + band) % 2 !== 0;
-      const goreCenterX = ((GORE_HEIGHT - 1) * HEX_SPACING_X) / 2 + gore * GORE_SPACING_X;
-      const startRow = band === 0 ? 0 : 1; // row 0 duplicates the previous band's last row
-      for (let localRow = startRow; localRow < GORE_HEIGHT; localRow++) {
-        const rowCount = tipUp ? localRow + 1 : GORE_HEIGHT - localRow;
-        const py = band * BAND_HEIGHT + localRow * HEX_SPACING_Y;
-        for (let i = 0; i < rowCount; i++) {
-          const px = goreCenterX + (i - (rowCount - 1) / 2) * HEX_SPACING_X;
-          hexes.push({ band, gore, localRow, px, py, terrain: null });
-        }
-      }
+  for (let row = 0; row < GRID_ROWS; row++) {
+    // How many hex-columns this row loses from EACH side: 0 until the
+    // taper zone starts, then 1, 2, 3... on each successive row - matching
+    // the reference's near-linear corner chamfer (it loses about half a
+    // hex-width of margin per side per row, which in whole-column terms is
+    // one column every two rows per side; using one column per row here is
+    // a slightly brisker, still-close approximation that stays simple).
+    const rowsIntoTaper = row - (GRID_ROWS - TAPER_ROWS);
+    const trim = rowsIntoTaper >= 0 ? rowsIntoTaper + 1 : 0;
+    const py = row * HEX_SPACING_Y;
+    const rowOffset = row % 2 !== 0 ? HEX_SPACING_X / 2 : 0;
+    for (let col = trim; col < GRID_COLS - trim; col++) {
+      const px = col * HEX_SPACING_X + rowOffset;
+      hexes.push({ row, col, px, py, terrain: null });
     }
   }
   // Latitude, 0 (north pole, the image's very top) to 1 (south pole, the
-  // very bottom) - used for polar-ice/tundra banding below. Simple
-  // absolute-position measure now that there are 3 stacked bands rather
-  // than each gore having its own independent pole-tip.
-  const totalHeight = BAND_COUNT * BAND_HEIGHT;
-  for (const h of hexes) h.latitude = h.py / totalHeight;
+  // very bottom) - used for polar-ice/tundra banding below.
+  for (const h of hexes) h.latitude = h.row / (GRID_ROWS - 1);
   return hexes;
 }
 
