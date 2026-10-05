@@ -18,23 +18,30 @@ import { esc } from "./window-base.mjs";
 // module's own design, not a reproduction of anyone else's rules or code.
 // ---------------------------------------------------------------------------
 
-// Traveller world maps conventionally unwrap the globe's hex grid into a
-// strip of alternating "gores" - triangular wedges, each one running from a
-// pole (a single hex, the tip) to the equator (its widest row, the base),
-// tiled edge-to-edge with the orientation flipped every other gore so the
-// strip's top and bottom edges zigzag instead of leaving empty corners (this
-// is the same convention the mgt2e system's own placeholder
-// systems/mgt2e/images/world-map.svg uses, confirmed by inspecting it
-// directly after the first, plain-rectangle version of this generator was
-// shown to not match it). GORE_COUNT gores side by side, each GORE_HEIGHT
-// hex-rows from tip to base.
-// Exact gore count/height weren't measured from the reference (its 2000x1050
-// canvas may include padding/framing beyond the triangle strip itself, which
-// isn't knowable without opening it in an actual SVG editor) - these two
-// constants are the easy knobs to turn if the proportions should look
-// different once you can see a real result.
-const GORE_COUNT = 5;
+// Traveller world maps conventionally unwrap the globe's hex grid into
+// alternating "gores" - triangular wedges tiled edge-to-edge, orientation
+// flipped every other one so they interlock with no gaps. This generator's
+// band structure (3 rows of gores stacked in a plain RECTANGULAR canvas -
+// not a jagged outer silhouette) was read directly off the mgt2e system's
+// own placeholder systems/mgt2e/images/world-map.svg by tracing its actual
+// SVG path coordinates (not guessed from a screenshot):
+// its "Triangles" layer draws 3 such rows (top/middle/bottom, each spanning
+// the full width), and its "Outside" layer paints the small corner slivers
+// outside that rectangle white rather than leaving the silhouette jagged.
+// Below, the canvas is simply sized to the hexes' own bounding box and
+// given a plain background fill, which shows through any such corner on
+// its own - no separate masking needed.
+//
+// GORE_COUNT/GORE_HEIGHT (triangles across, hex-rows per triangle) are this
+// module's own choice of resolution, not a measurement - only the overall
+// image aspect ratio was actually measured (the reference's viewBox,
+// 529.167 x 277.8125, exactly matches its traced path bounds with no slack,
+// confirming there's no padding to account for: aspect = 1.905). These two
+// values are picked to land close to that while keeping reasonable hex
+// density; GORE_SPACING_X/BAND_HEIGHT below derive from them automatically.
+const GORE_COUNT = 7;
 const GORE_HEIGHT = 9;
+const BAND_COUNT = 3;
 const HEX_RADIUS = 14;
 
 const TERRAIN_STYLES = {
@@ -76,29 +83,42 @@ const HEX_SPACING_Y = HEX_RADIUS * 1.5;
 // separate non-overlapping slots.
 const GORE_SPACING_X = (HEX_SPACING_X * (GORE_HEIGHT + 1)) / 2;
 
+// Height of one band (tip-row to base-row span) in pixels - also the
+// vertical offset between consecutive bands, confirmed numerically before
+// writing this: band b's gore g base row and band b+1's gore g tip row
+// land at EXACTLY the same (x, y) when stacked this way (not just
+// adjacent - literally coincident), which is why each band after the
+// first skips its own row 0 below: that row is the previous band's last
+// row, not a new one.
+const BAND_HEIGHT = (GORE_HEIGHT - 1) * HEX_SPACING_Y;
+
 function buildGrid() {
   const hexes = [];
-  for (let gore = 0; gore < GORE_COUNT; gore++) {
-    const tipUp = gore % 2 === 0; // alternate orientation so gores interlock
-    // Gore 0's own base row starts flush at x=0; every later gore is offset
-    // from it by GORE_SPACING_X per step.
-    const goreCenterX = ((GORE_HEIGHT - 1) * HEX_SPACING_X) / 2 + gore * GORE_SPACING_X;
-    for (let localRow = 0; localRow < GORE_HEIGHT; localRow++) {
-      // tip-up: row 0 is the 1-hex tip (pole), row GORE_HEIGHT-1 is the
-      // full-width base (equator). tip-down is the mirror image.
-      const rowCount = tipUp ? localRow + 1 : GORE_HEIGHT - localRow;
-      // Distance from this row to its gore's pole-tip, 0 (at the pole) to 1
-      // (at the equator) - used for polar-ice/tundra banding below in place
-      // of a simple top/bottom row index, since "near the pole" means
-      // "near this gore's own tip", not "near the image's top/bottom edge".
-      const poleDist = tipUp ? localRow / (GORE_HEIGHT - 1) : (GORE_HEIGHT - 1 - localRow) / (GORE_HEIGHT - 1);
-      const py = localRow * HEX_SPACING_Y;
-      for (let i = 0; i < rowCount; i++) {
-        const px = goreCenterX + (i - (rowCount - 1) / 2) * HEX_SPACING_X;
-        hexes.push({ gore, localRow, px, py, poleDist, terrain: null });
+  for (let band = 0; band < BAND_COUNT; band++) {
+    for (let gore = 0; gore < GORE_COUNT; gore++) {
+      // Orientation alternates across gores as before, but also flips
+      // between bands (band0.gore0 is tip-down, band1.gore0 is tip-up,
+      // confirmed from the reference's own path data) so each band's
+      // shared boundary row with its neighbor lines up correctly.
+      const tipUp = (gore + band) % 2 !== 0;
+      const goreCenterX = ((GORE_HEIGHT - 1) * HEX_SPACING_X) / 2 + gore * GORE_SPACING_X;
+      const startRow = band === 0 ? 0 : 1; // row 0 duplicates the previous band's last row
+      for (let localRow = startRow; localRow < GORE_HEIGHT; localRow++) {
+        const rowCount = tipUp ? localRow + 1 : GORE_HEIGHT - localRow;
+        const py = band * BAND_HEIGHT + localRow * HEX_SPACING_Y;
+        for (let i = 0; i < rowCount; i++) {
+          const px = goreCenterX + (i - (rowCount - 1) / 2) * HEX_SPACING_X;
+          hexes.push({ band, gore, localRow, px, py, terrain: null });
+        }
       }
     }
   }
+  // Latitude, 0 (north pole, the image's very top) to 1 (south pole, the
+  // very bottom) - used for polar-ice/tundra banding below. Simple
+  // absolute-position measure now that there are 3 stacked bands rather
+  // than each gore having its own independent pole-tip.
+  const totalHeight = BAND_COUNT * BAND_HEIGHT;
+  for (const h of hexes) h.latitude = h.py / totalHeight;
   return hexes;
 }
 
@@ -188,18 +208,18 @@ export function generateWorldTerrain({ size, atmosphere, hydrographics }) {
   // Polar ice: thinner atmospheres hold less heat, so they get bigger caps.
   // A size-0 world (asteroid belt/tiny) or airless world (atmosphere 0) is
   // frozen almost pole-to-pole; a thick, good atmosphere keeps caps small.
-  // Expressed as a fraction of each gore's pole-to-equator span (poleDist,
-  // see buildGrid) rather than a row count, since "near the pole" means
-  // "close to this gore's own tip", not a fixed row index.
+  // Expressed as a fraction of the whole image's north-to-south latitude
+  // span (h.latitude, see buildGrid), i.e. "ice covers the outermost N% of
+  // latitude at each pole".
   let icePoleFraction;
-  if (size === 0 || atmosphere === 0) icePoleFraction = 0.45;
-  else if (atmosphere <= 3) icePoleFraction = 0.35;
-  else if (atmosphere <= 6) icePoleFraction = 0.2;
-  else if (atmosphere <= 9) icePoleFraction = 0.1;
+  if (size === 0 || atmosphere === 0) icePoleFraction = 0.22;
+  else if (atmosphere <= 3) icePoleFraction = 0.16;
+  else if (atmosphere <= 6) icePoleFraction = 0.1;
+  else if (atmosphere <= 9) icePoleFraction = 0.05;
   else icePoleFraction = 0;
   if (icePoleFraction > 0) {
     for (const h of hexes) {
-      if (h.poleDist <= icePoleFraction) h.terrain = "iceCap";
+      if (h.latitude <= icePoleFraction || h.latitude >= 1 - icePoleFraction) h.terrain = "iceCap";
     }
   }
 
@@ -252,14 +272,12 @@ function hexPoints(cx, cy, r) {
   return pts.join(" ");
 }
 
-// A regular hex-pyramid's own geometry makes every gore slightly WIDER than
-// tall (HEX_SPACING_Y/HEX_SPACING_X ~ 0.87, a fixed ratio GORE_HEIGHT can't
-// change), which reads as a gentle scalloped blob rather than the tall,
-// sharp zigzag spikes real Traveller world maps use. Applied only here as a
-// single SVG group transform - hex adjacency/terrain generation above runs
-// entirely on the unstretched positions, so this is purely cosmetic and
-// can't affect which hexes count as neighbors.
-const Y_STRETCH = 2;
+// An earlier version applied a 2x vertical stretch here, guessed from a
+// screenshot impression that the reference's triangles looked "tall and
+// spiky". Tracing the reference SVG's actual path coordinates afterward
+// showed real triangles measuring base:height ~1.14 - almost exactly this
+// hex-pyramid's own natural, unstretched ratio (HEX_SPACING_X/HEX_SPACING_Y
+// ~1.15). No stretch is needed; removed.
 
 export function renderWorldMapSvg(hexes, worldName) {
   const pad = HEX_RADIUS * 2;
@@ -267,7 +285,7 @@ export function renderWorldMapSvg(hexes, worldName) {
   const minX = Math.min(...xs), maxX = Math.max(...xs);
   const minY = Math.min(...ys), maxY = Math.max(...ys);
   const mapW = (maxX - minX) + pad * 2;
-  const mapH = ((maxY - minY) + pad * 2) * Y_STRETCH;
+  const mapH = (maxY - minY) + pad * 2;
 
   const used = new Set(hexes.map(h => h.terrain));
   const legendEntries = Object.entries(TERRAIN_STYLES).filter(([key]) => used.has(key));
@@ -276,10 +294,6 @@ export function renderWorldMapSvg(hexes, worldName) {
   const totalW = mapW + legendW;
   const totalH = Math.max(mapH, legendEntries.length * legendRowH + pad);
 
-  // Hex centers AND each hex's own shape (via hexPoints) scale together
-  // under the group's own transform below, so they stay seamlessly tiled -
-  // stretching just the center positions while leaving each hex's own
-  // radius alone would tear visible gaps open between rows.
   const hexesHtml = hexes.map(h => {
     const x = h.px - minX + pad;
     const y = h.py - minY + pad;
@@ -295,9 +309,9 @@ export function renderWorldMapSvg(hexes, worldName) {
   }).join("");
 
   return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${totalW.toFixed(1)} ${totalH.toFixed(1)}" width="${totalW.toFixed(0)}" height="${totalH.toFixed(0)}">
-    <rect x="0" y="0" width="${totalW}" height="${totalH}" fill="#f0f4f7"/>
+    <rect x="0" y="0" width="${totalW}" height="${totalH}" fill="#f0f4f7" stroke="#333333" stroke-width="2"/>
     <title>${esc(worldName || "World")} - procedurally generated surface map</title>
-    <g transform="scale(1, ${Y_STRETCH})">${hexesHtml}</g>
+    ${hexesHtml}
     ${legendHtml}
   </svg>`;
 }
