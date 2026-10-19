@@ -13,7 +13,25 @@ export const TERRAIN_STYLES = Object.freeze({
   hills: { label: "Hills", color: "#b29c76" },
   mountains: { label: "Mountains", color: "#837c70" },
   barren: { label: "Barren", color: "#aaa69f" },
-  wasteland: { label: "Wasteland", color: "#b2a871" }
+  wasteland: { label: "Wasteland", color: "#b2a871" },
+  clear: { label: "Clear", color: "#cbd6a0" },
+  marsh: { label: "Marsh", color: "#9ebdaa" },
+  rough: { label: "Rough", color: "#b5ae8f" },
+  swamp: { label: "Swamp", color: "#719889" },
+  roughWood: { label: "Rough woods", color: "#6f8057" },
+  chasm: { label: "Chasm", color: "#665f59" },
+  cropland: { label: "Cropland", color: "#d9d581" },
+  rural: { label: "Rural", color: "#b5cf8a" },
+  islands: { label: "Islands", color: "#6ba69e" },
+  shore: { label: "Shore", color: "#afd3c6" },
+  river: { label: "River", color: "#5d9fc1" },
+  lake: { label: "Lake", color: "#5791b7" },
+  baked: { label: "Baked lands", color: "#c98e65" },
+  twilight: { label: "Twilight", color: "#b4a8c5" },
+  frozen: { label: "Frozen lands", color: "#c2d7dc" },
+  iceField: { label: "Ice field", color: "#b9dce9" },
+  precipice: { label: "Precipice", color: "#9a847a" },
+  exotic: { label: "Exotic", color: "#ad97bb" }
 });
 
 function uwpValue(value, label, maximum) {

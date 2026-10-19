@@ -1,4 +1,4 @@
-# Import and export world maps (1.23.0)
+# Import and export world maps (1.24.0)
 
 On a World actor's Map tab, the GM now has **Export Map Data** and
 **Import Map Data** alongside the two generation buttons.
@@ -33,7 +33,7 @@ The top-level fields are:
 | Field | Meaning |
 | --- | --- |
 | `format` | `traveller-trading-world-map` |
-| `version` | Data format version, currently `1` |
+| `version` | Data format version, currently `2`; version `1` files remain supported |
 | `geometryVersion` | Canonical grid identity version, currently `1` |
 | `worldName` | Source world's display name |
 | `size` | Numeric UWP world size |
@@ -42,13 +42,17 @@ The top-level fields are:
 | `uwp` | Source atmosphere/hydrographics metadata, or `null` |
 | `cells` | One record per unique globe cell, excluding repeated fragments |
 
-Each cell record has `id`, `terrain`, and `surface`. Blank maps use `null`
+Each cell record has `id`, `terrain`, `surface` and `features`. Blank maps use `null`
 terrain and surface. Terrain keys use the module's terrain palette; surface
-is `water` or `land` (or `null` for legacy ice). Neighbor sets, coordinates,
+is `water` or `land` (or `null` for legacy ice). `features` is a list of catalogue
+keys such as `starport`, `city`, `town`, `dome` and `arcology`. Version 2 also
+supports the desktop editor's optional generation `profile`. Neighbor sets, coordinates,
 polygons, SVG markup and custom palette colors are never imported. The module
 rebuilds geometry from size and validates every cell against that geometry.
 Unrecognized properties are discarded. Unsupported versions are rejected
-rather than guessed.
+rather than guessed. Feature annotations and the expanded T5 terrain palette
+are rendered in Foundry and preserved on re-export. Update the module to
+1.24.0+ before importing edited desktop files; older importers reject version 2.
 
 The exported module functions are `serializeWorldMap(grid, worldName)`,
 `deserializeWorldMap(dataOrJson)` (returns `{grid, data}`),

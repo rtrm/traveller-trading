@@ -1,3 +1,5 @@
+import { MAP_FEATURES, renderMapFeatures } from "./world-map-features.mjs";
+
 // Pure geometry: a frequency-size icosahedral grid, unfolded into Traveller's
 // five-column net. Surface cells are dual to the subdivided triangular lattice.
 // One cell may have several clipped drawing fragments; these are not new cells.
@@ -91,16 +93,19 @@ export function renderWorldMapSvg(grid, worldName = "World") {
       const color = styles[terrain]?.color || "white";
       return `<polygon data-cell="${f.cellId}" points="${hex(f.x, f.y)}" fill="${escapeXml(color)}"/>`;
     }).join("");
+    const markers = face.fragments.map(f => renderMapFeatures(cellsById.get(f.cellId).features, f.x, f.y)).join("");
     for (const offset of [-width, 0, width]) {
       const min = Math.min(...face.vertices.map(v => v.x)) + offset;
       const max = Math.max(...face.vertices.map(v => v.x)) + offset;
       if (max <= 0 || min >= width) continue;
-      drawings.push(`<g transform="translate(${number(offset)} 0)"><g clip-path="url(#${face.id})" fill="white" stroke="#999" stroke-width="0.65">${polygons}</g><polygon points="${points(face.vertices)}" fill="none" stroke="#333" stroke-width="1.1"/></g>`);
+      drawings.push(`<g transform="translate(${number(offset)} 0)"><g clip-path="url(#${face.id})" fill="white" stroke="#999" stroke-width="0.65">${polygons}${markers}</g><polygon points="${points(face.vertices)}" fill="none" stroke="#333" stroke-width="1.1" pointer-events="none"/></g>`);
     }
   }
   const label = `${worldName || "World"} — Size ${grid.size} — World hex: 1,000 km`;
   const used = new Set(grid.cells.map(cell => cell.terrain));
-  const legend = Object.entries(styles).filter(([key]) => used.has(key));
+  const usedFeatures = new Set(grid.cells.flatMap(cell => cell.features || []));
+  const legend = [...Object.entries(styles).filter(([key]) => used.has(key)),
+    ...Object.entries(MAP_FEATURES).filter(([key]) => usedFeatures.has(key)).map(([key, style]) => [key, { label: `${style.mark}: ${style.label}`, color: "#ffffff" }])];
   // Place the legend below the net so the proven map proportions stay intact.
   const legendColumns = Math.max(1, Math.floor(width / 165));
   const legendHeight = legend.length ? 18 + Math.ceil(legend.length / legendColumns) * 20 : 0;
@@ -115,5 +120,5 @@ export function renderWorldMapSvg(grid, worldName = "World") {
   <title>${escapeXml(label)}</title><defs>${definitions.join("")}<clipPath id="mapBounds"><rect width="${number(width)}" height="${number(height)}"/></clipPath></defs>
   <rect width="100%" height="100%" fill="white"/>
   <text x="${margin}" y="24" font-family="sans-serif" font-size="${number(Math.min(12, width / (label.length * 0.7)))}">${escapeXml(label)}</text>
-  <g transform="translate(${margin} ${header + margin})"><g clip-path="url(#mapBounds)">${drawings.join("")}</g><rect width="${number(width)}" height="${number(height)}" fill="none" stroke="#333" stroke-width="1"/></g>${legendHtml}</svg>`;
+  <g transform="translate(${margin} ${header + margin})"><g clip-path="url(#mapBounds)">${drawings.join("")}</g><rect width="${number(width)}" height="${number(height)}" fill="none" stroke="#333" stroke-width="1" pointer-events="none"/></g>${legendHtml}</svg>`;
 }

@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import { buildWorldGrid, renderWorldMapSvg } from "../scripts/world-map-grid.mjs";
 import { generateWorldTerrain, TERRAIN_STYLES } from "../scripts/world-map-terrain.mjs";
 import { serializeWorldMap, deserializeWorldMap, recoverWorldMapData, embedWorldMapData, MAX_MAP_BYTES } from "../scripts/world-map-data.mjs";
+import { MAP_FEATURES } from "../scripts/world-map-features.mjs";
 
 function sample(size = 5, blank = false) {
   const grid = buildWorldGrid(size);
@@ -24,7 +25,7 @@ for (const size of [1, 4, 5, 8, 12]) {
 test("invalid, future and corrupted map files are rejected", () => {
   const { data } = sample();
   for (const input of ["bad JSON", "[]", "null", "x".repeat(MAX_MAP_BYTES + 1),
-    { ...data, format: "other" }, { ...data, version: 2 }, { ...data, geometryVersion: 99 },
+    { ...data, format: "other" }, { ...data, version: 99 }, { ...data, geometryVersion: 99 },
     { ...data, size: 0 }, { ...data, size: "5" }, { ...data, size: 4 },
     { ...data, hexScaleKm: 100 }, { ...data, worldName: null }, { ...data, kind: "unknown" },
     { ...data, cells: data.cells.slice(1) },
@@ -44,6 +45,31 @@ test("normalization drops untrusted fields and does not retain input references"
   assert.equal(restored.data.palette, undefined);
   data.cells[0].terrain = "invalid";
   assert.notEqual(restored.data.cells[0].terrain, "invalid");
+});
+
+test("version 1 maps upgrade without losing terrain", () => {
+  const { data } = sample();
+  data.version = 1;
+  for (const cell of data.cells) delete cell.features;
+  const restored = deserializeWorldMap(data).data;
+  assert.equal(restored.version, 2);
+  assert.deepEqual(restored.cells.map(c => c.terrain), data.cells.map(c => c.terrain));
+  assert.ok(restored.cells.every(c => c.features.length === 0));
+});
+
+test("edited terrain and all supported annotations survive Foundry rendering and round trips", () => {
+  const { grid } = sample();
+  const cell = grid.cells[0];
+  cell.terrain = "cropland"; cell.surface = "land";
+  cell.features = Object.keys(MAP_FEATURES);
+  const data = serializeWorldMap(grid, "Edited world");
+  const restored = deserializeWorldMap(JSON.stringify(data));
+  assert.deepEqual(restored.data, data);
+  assert.ok(renderWorldMapSvg(restored.grid).includes('data-feature="starport"'));
+  for (const features of [["unknown"], ["city", "city"], ["<script>"], "city"]) {
+    const bad = structuredClone(data); bad.cells[0].features = features;
+    assert.throws(() => deserializeWorldMap(bad));
+  }
 });
 
 test("embedded metadata escapes XML and preserves JSON content", () => {

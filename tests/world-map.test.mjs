@@ -187,6 +187,22 @@ test("failed map import upload preserves image and serialized actor state", asyn
   assert.equal(actor.system.world.map, "maps/generated.svg");
 });
 
+test("desktop-edited terrain and settlements import into the actor and uploaded SVG", async () => {
+  const { actor, picker } = setup();
+  await generateAndSaveWorldMap(actor);
+  const data = await exportWorldMapData(actor);
+  data.cells[0].terrain = "cropland"; data.cells[0].surface = "land";
+  data.cells[0].features = ["starport", "city", "dome", "arcology"];
+  data.profile = { uwp: "B565489-B", tradeCodes: ["Ni"], habitableZone: true, resourceCount: 0 };
+  let svg;
+  picker.upload = async (source, path, file) => { svg = await file.text(); return { path: "maps/edited.svg" }; };
+  assert.equal(await importWorldMapData(actor, data), "maps/edited.svg");
+  for (const key of data.cells[0].features) assert.ok(svg.includes(`data-feature="${key}"`));
+  const exported = await exportWorldMapData(actor);
+  assert.deepEqual(exported.cells, data.cells);
+  assert.deepEqual(exported.profile, data.profile);
+});
+
 test("default actor generation uploads terrain; explicit blank generation needs only size", async () => {
   const { actor, picker } = setup();
   const uploaded = [];
