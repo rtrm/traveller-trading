@@ -48,7 +48,10 @@ export function buildWorldGrid(value) {
         // belong to one face. Integer weights avoid floating-point seam keys.
         const id = support.length === 3 ? `${face.id}:${a}:${b}` :
           support.map(v => `${v.id}:${v.weight}`).join("/");
-        if (!cells.has(id)) cells.set(id, { id, pentagon: support.length === 1, neighbors: new Set() });
+        if (!cells.has(id)) cells.set(id, {
+          id, pentagon: support.length === 1, neighbors: new Set(),
+          latitude: face.vertices.reduce((sum, v, k) => sum + v.y * weights[k] / size, 0) / (3 * height)
+        });
         lattice.set(`${a},${b}`, id);
         const x = face.vertices.reduce((sum, v, k) => sum + v.x * weights[k] / size, 0);
         const y = face.vertices.reduce((sum, v, k) => sum + v.y * weights[k] / size, 0);
@@ -79,9 +82,15 @@ export function renderWorldMapSvg(grid, worldName = "World") {
     return { x: x + radius * Math.cos(angle), y: y + radius * Math.sin(angle) };
   }));
   const definitions = [], drawings = [];
+  const cellsById = new Map(grid.cells.map(cell => [cell.id, cell]));
+  const styles = grid.terrainStyles || {};
   for (const face of grid.faces) {
     definitions.push(`<clipPath id="${face.id}" clipPathUnits="userSpaceOnUse"><polygon points="${points(face.vertices)}"/></clipPath>`);
-    const polygons = face.fragments.map(f => `<polygon data-cell="${f.cellId}" points="${hex(f.x, f.y)}"/>`).join("");
+    const polygons = face.fragments.map(f => {
+      const terrain = cellsById.get(f.cellId).terrain;
+      const color = styles[terrain]?.color || "white";
+      return `<polygon data-cell="${f.cellId}" points="${hex(f.x, f.y)}" fill="${escapeXml(color)}"/>`;
+    }).join("");
     for (const offset of [-width, 0, width]) {
       const min = Math.min(...face.vertices.map(v => v.x)) + offset;
       const max = Math.max(...face.vertices.map(v => v.x)) + offset;
@@ -90,9 +99,21 @@ export function renderWorldMapSvg(grid, worldName = "World") {
     }
   }
   const label = `${worldName || "World"} — Size ${grid.size} — World hex: 1,000 km`;
-  return `<svg xmlns="http://www.w3.org/2000/svg" width="${number(width + 2 * margin)}" height="${number(height + header + 2 * margin)}" viewBox="0 0 ${number(width + 2 * margin)} ${number(height + header + 2 * margin)}">
+  const used = new Set(grid.cells.map(cell => cell.terrain));
+  const legend = Object.entries(styles).filter(([key]) => used.has(key));
+  // Place the legend below the net so the proven map proportions stay intact.
+  const legendColumns = Math.max(1, Math.floor(width / 165));
+  const legendHeight = legend.length ? 18 + Math.ceil(legend.length / legendColumns) * 20 : 0;
+  const legendHtml = legend.map(([key, style], index) => {
+    const x = margin + (index % legendColumns) * 165;
+    const y = header + margin + height + 16 + Math.floor(index / legendColumns) * 20;
+    return `<g data-terrain="${key}"><rect x="${number(x)}" y="${number(y)}" width="10" height="10" fill="${escapeXml(style.color)}" stroke="#666" stroke-width="0.5"/><text x="${number(x + 15)}" y="${number(y + 9)}" font-size="10" font-family="sans-serif">${escapeXml(style.label)}</text></g>`;
+  }).join("");
+  const totalHeight = height + header + 2 * margin + legendHeight;
+  const totalWidth = Math.max(width + 2 * margin, legend.length ? 197 : 0);
+  return `<svg xmlns="http://www.w3.org/2000/svg" width="${number(totalWidth)}" height="${number(totalHeight)}" viewBox="0 0 ${number(totalWidth)} ${number(totalHeight)}">
   <title>${escapeXml(label)}</title><defs>${definitions.join("")}<clipPath id="mapBounds"><rect width="${number(width)}" height="${number(height)}"/></clipPath></defs>
   <rect width="100%" height="100%" fill="white"/>
   <text x="${margin}" y="24" font-family="sans-serif" font-size="${number(Math.min(12, width / (label.length * 0.7)))}">${escapeXml(label)}</text>
-  <g transform="translate(${margin} ${header + margin})"><g clip-path="url(#mapBounds)">${drawings.join("")}</g><rect width="${number(width)}" height="${number(height)}" fill="none" stroke="#333" stroke-width="1"/></g></svg>`;
+  <g transform="translate(${margin} ${header + margin})"><g clip-path="url(#mapBounds)">${drawings.join("")}</g><rect width="${number(width)}" height="${number(height)}" fill="none" stroke="#333" stroke-width="1"/></g>${legendHtml}</svg>`;
 }

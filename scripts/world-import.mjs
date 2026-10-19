@@ -470,7 +470,7 @@ class ImportWorldsApp extends TradingWindowBase {
     const { created, updated } = await importWorldRows(rows, sectorMeta, milieu, {
       generateMaps: this.generateMaps,
       onProgress: ({ name, created, updated, total }) => {
-        this.statusHtml = `<p class="tt-hint">Importing… ${created + updated}/${total} (${esc(name)})${this.generateMaps ? " - generating blank world map" : ""}</p>`;
+        this.statusHtml = `<p class="tt-hint">Importing… ${created + updated}/${total} (${esc(name)})${this.generateMaps ? " - generating surface map" : ""}</p>`;
         this._renderContent();
       }
     });
@@ -523,7 +523,7 @@ class ImportWorldsApp extends TradingWindowBase {
     const generateMapsHtml = `
       <label style="display:flex;align-items:center;gap:6px;font-size:12.5px;margin-top:10px;">
         <input type="checkbox" data-tt-generate-maps ${this.generateMaps ? "checked" : ""} ${this.busy ? "disabled" : ""}>
-        Also generate a blank world map for each world (size 0 skipped)
+        Also generate a terrain surface map for each world (size 0 skipped)
       </label>`;
 
     this.root.innerHTML = `

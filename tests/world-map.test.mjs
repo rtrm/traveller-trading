@@ -69,7 +69,7 @@ function setup(size = 5) {
     async upload() { calls.upload++; return { path: "maps/generated.svg" }; }
   };
   globalThis.foundry = { utils: { randomID: () => "unique" }, applications: { apps: { FilePicker: { implementation: picker } } } };
-  const actor = { id: "actor1", name: "Example", type: "world", system: { world: { uwp: { size }, map: "original.svg" } },
+  const actor = { id: "actor1", name: "Example", type: "world", system: { world: { uwp: { size, atmosphere: 6, hydrographics: 5 }, map: "original.svg" } },
     async update(data) { calls.update++; Object.assign(this.system.world, { map: data["system.world.map"] }); } };
   return { calls, actor, picker };
 }
@@ -113,20 +113,53 @@ test("Foundry saves only successful uploads; zero, bad UWP and storage failures 
 
 test("sheet button restores state after a failed generation", async () => {
   const { actor, picker } = setup();
-  let render, click;
+  let render;
   globalThis.Hooks = { on: (name, fn) => { assert.equal(name, "renderActorSheet"); render = fn; } };
   globalThis.HTMLElement = class {};
-  const button = { dataset: {}, style: {}, addEventListener: (name, fn) => { click = fn; } };
-  globalThis.document = { createElement: () => button };
+  const buttons = [];
+  globalThis.document = { createElement: tag => {
+    if (tag === "div") return { dataset: {}, append() {} };
+    const button = { dataset: {}, style: {}, addEventListener: (name, fn) => { button.click = fn; } };
+    buttons.push(button); return button;
+  } };
   const root = new HTMLElement();
   root.querySelector = () => ({ parentElement: { querySelector: () => null }, insertAdjacentElement() {} });
   registerWorldMapGenButton(); render({ actor }, root);
   picker.upload = async () => { throw new Error("Offline"); };
   const originalError = console.error; console.error = () => {};
-  try { await click({ preventDefault() {} }); }
+  try { await buttons[0].click({ preventDefault() {} }); }
   finally { console.error = originalError; }
-  assert.equal(button.disabled, false);
-  assert.equal(button.textContent, "Generate Blank World Map");
+  assert.ok(buttons.every(button => button.disabled === false));
+  assert.equal(buttons[0].textContent, "Generate / Reroll Surface Map");
+  assert.equal(buttons[1].textContent, "Generate Blank World Map");
+});
+
+test("default actor generation uploads terrain; explicit blank generation needs only size", async () => {
+  const { actor, picker } = setup();
+  const uploaded = [];
+  picker.upload = async (source, dir, file) => {
+    uploaded.push({ name: file.name, svg: await file.text() });
+    return { path: "maps/generated.svg" };
+  };
+  assert.ok(await generateAndSaveWorldMap(actor));
+  assert.ok(uploaded[0].name.includes("-surface-"));
+  assert.ok(uploaded[0].svg.includes('data-terrain="ocean"'));
+  delete actor.system.world.uwp.hydrographics;
+  delete actor.system.world.uwp.atmosphere;
+  assert.ok(await generateAndSaveWorldMap(actor, { blank: true }));
+  assert.ok(uploaded[1].name.includes("-blank-"));
+  assert.ok(!uploaded[1].svg.includes("data-terrain="));
+});
+
+test("invalid terrain UWP preserves an existing actor map without uploading", async () => {
+  const { actor, calls } = setup();
+  actor.system.world.uwp.hydrographics = "?";
+  const originalError = console.error; console.error = () => {};
+  try { assert.equal(await generateAndSaveWorldMap(actor), null); }
+  finally { console.error = originalError; }
+  assert.equal(calls.upload, 0);
+  assert.equal(calls.update, 0);
+  assert.equal(actor.system.world.map, "original.svg");
 });
 
 test("sector-sized map batch prepares folders once and still uploads each map", async () => {

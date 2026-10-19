@@ -1,5 +1,6 @@
 import { MODULE_ID } from "./constants.mjs";
 import { buildWorldGrid, parseWorldSize, renderWorldMapSvg } from "./world-map-grid.mjs";
+import { generateWorldTerrain } from "./world-map-terrain.mjs";
 
 // Forge routes directory operations through its remote API. Share preparation
 // across the session, including concurrent requests, instead of repeating two
@@ -29,7 +30,7 @@ async function prepareMapDirectory(picker, source, dir) {
 }
 
 // Preserve the actor/image interface; geometry has no Foundry dependencies.
-export async function generateAndSaveWorldMap(actor, { quietSkip = false } = {}) {
+export async function generateAndSaveWorldMap(actor, { quietSkip = false, blank = false } = {}) {
   if (!game.user.isGM) return null;
   try {
     const size = parseWorldSize(actor.system?.world?.uwp?.size);
@@ -37,13 +38,15 @@ export async function generateAndSaveWorldMap(actor, { quietSkip = false } = {})
       if (!quietSkip) ui.notifications.info(`${actor.name}: size 0 has no globe surface map.`);
       return null;
     }
-    const svg = renderWorldMapSvg(buildWorldGrid(size), actor.name);
+    const grid = buildWorldGrid(size);
+    if (!blank) generateWorldTerrain(grid, actor.system.world.uwp);
+    const svg = renderWorldMapSvg(grid, actor.name);
     const picker = foundry.applications.apps.FilePicker.implementation;
     const source = "data";
     const dir = `worlds/${MODULE_ID}/maps`;
     await prepareMapDirectory(picker, source, dir);
     // A fresh path refreshes the sheet image after replacing an old map.
-    const filename = `${actor.id}-blank-${foundry.utils.randomID()}.svg`;
+    const filename = `${actor.id}-${blank ? "blank" : "surface"}-${foundry.utils.randomID()}.svg`;
     const file = new File([svg], filename, { type: "image/svg+xml" });
     let result;
     try {
@@ -58,8 +61,8 @@ export async function generateAndSaveWorldMap(actor, { quietSkip = false } = {})
     await actor.update({ "system.world.map": result.path });
     return result.path;
   } catch (error) {
-    console.error("Traveller Trading | Blank world map generation failed", error);
-    ui.notifications.error(`Couldn't generate a blank map for ${actor.name}: ${error.message || String(error)}`);
+    console.error("Traveller Trading | World map generation failed", error);
+    ui.notifications.error(`Couldn't generate a ${blank ? "blank" : "surface"} map for ${actor.name}: ${error.message || String(error)}`);
     return null;
   }
 }
@@ -72,21 +75,29 @@ export function registerWorldMapGenButton() {
     if (!root) return;
     const img = root.querySelector('img[data-edit="system.world.map"]');
     if (!img || img.parentElement.querySelector("[data-tt-gen-map]")) return;
-    const btn = document.createElement("button");
-    btn.type = "button";
-    btn.dataset.ttGenMap = "1";
-    btn.textContent = "Generate Blank World Map";
-    btn.style.cssText = "margin-top:8px;";
-    btn.addEventListener("click", async event => {
-      event.preventDefault();
-      btn.disabled = true;
-      btn.textContent = "Generating…";
-      try { await generateAndSaveWorldMap(actor); }
-      finally {
-        btn.disabled = false;
-        btn.textContent = "Generate Blank World Map";
-      }
-    });
-    img.insertAdjacentElement("afterend", btn);
+    const container = document.createElement("div");
+    container.dataset.ttGenMap = "1";
+    const buttons = [];
+    for (const blank of [false, true]) {
+      const btn = document.createElement("button");
+      btn.type = "button";
+      btn.dataset.ttGenMap = "1";
+      const label = blank ? "Generate Blank World Map" : "Generate / Reroll Surface Map";
+      btn.textContent = label;
+      btn.style.cssText = "margin-top:8px;";
+      btn.addEventListener("click", async event => {
+        event.preventDefault();
+        for (const button of buttons) button.disabled = true;
+        btn.textContent = "Generating…";
+        try { await generateAndSaveWorldMap(actor, { blank }); }
+        finally {
+          for (const button of buttons) button.disabled = false;
+          btn.textContent = label;
+        }
+      });
+      buttons.push(btn);
+      container.append(btn);
+    }
+    img.insertAdjacentElement("afterend", container);
   });
 }
