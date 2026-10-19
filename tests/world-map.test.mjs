@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { buildWorldGrid, parseWorldSize, renderWorldMapSvg } from "../scripts/world-map-grid.mjs";
-import { generateAndSaveWorldMap, registerWorldMapGenButton } from "../scripts/world-map-gen.mjs";
+import { generateAndSaveWorldMap, registerWorldMapGenButton, exportWorldMapData, importWorldMapData } from "../scripts/world-map-gen.mjs";
 
 for (let size = 1; size <= 12; size++) {
   test(`size ${size}: closed globe topology and equilateral net`, () => {
@@ -70,7 +70,10 @@ function setup(size = 5) {
   };
   globalThis.foundry = { utils: { randomID: () => "unique" }, applications: { apps: { FilePicker: { implementation: picker } } } };
   const actor = { id: "actor1", name: "Example", type: "world", system: { world: { uwp: { size, atmosphere: 6, hydrographics: 5 }, map: "original.svg" } },
-    async update(data) { calls.update++; Object.assign(this.system.world, { map: data["system.world.map"] }); } };
+    async update(data) {
+      calls.update++; Object.assign(this.system.world, { map: data["system.world.map"] });
+      if (data["flags.traveller-trading.worldMap"]) this.flags = { "traveller-trading": { worldMap: data["flags.traveller-trading.worldMap"] } };
+    } };
   return { calls, actor, picker };
 }
 
@@ -132,6 +135,56 @@ test("sheet button restores state after a failed generation", async () => {
   assert.ok(buttons.every(button => button.disabled === false));
   assert.equal(buttons[0].textContent, "Generate / Reroll Surface Map");
   assert.equal(buttons[1].textContent, "Generate Blank World Map");
+  assert.equal(buttons[2].textContent, "Export Map Data");
+  assert.equal(buttons[3].textContent, "Import Map Data");
+});
+
+test("generated map exports from saved data, and imports without rerolling or changing UWP", async () => {
+  const { actor, calls } = setup();
+  await generateAndSaveWorldMap(actor);
+  const data = await exportWorldMapData(actor);
+  const originalUwp = structuredClone(actor.system.world.uwp);
+  const before = calls.upload;
+  actor.name = "Imported world";
+  assert.ok(await importWorldMapData(actor, JSON.stringify(data)));
+  const exported = await exportWorldMapData(actor);
+  assert.deepEqual(exported.cells, data.cells);
+  assert.equal(exported.worldName, "Imported world");
+  assert.deepEqual(actor.system.world.uwp, originalUwp);
+  assert.equal(calls.upload, before + 1);
+});
+
+test("bad imports and size mismatches preserve saved map and data; non-GMs cannot import", async () => {
+  const { actor, calls } = setup();
+  await generateAndSaveWorldMap(actor);
+  const data = await exportWorldMapData(actor);
+  const saved = structuredClone(actor.flags);
+  const uploads = calls.upload;
+  const originalError = console.error; console.error = () => {};
+  try {
+    assert.equal(await importWorldMapData(actor, "bad JSON"), null);
+    actor.system.world.uwp.size = 4;
+    assert.equal(await importWorldMapData(actor, data), null);
+    actor.system.world.uwp.size = 5;
+    game.user.isGM = false;
+    assert.equal(await importWorldMapData(actor, data), null);
+  } finally { console.error = originalError; }
+  assert.equal(calls.upload, uploads);
+  assert.deepEqual(actor.flags, saved);
+  assert.equal(actor.system.world.map, "maps/generated.svg");
+});
+
+test("failed map import upload preserves image and serialized actor state", async () => {
+  const { actor, picker } = setup();
+  await generateAndSaveWorldMap(actor);
+  const data = await exportWorldMapData(actor);
+  const saved = structuredClone(actor.flags);
+  picker.upload = async () => { throw new Error("Storage unavailable"); };
+  const originalError = console.error; console.error = () => {};
+  try { assert.equal(await importWorldMapData(actor, data), null); }
+  finally { console.error = originalError; }
+  assert.deepEqual(actor.flags, saved);
+  assert.equal(actor.system.world.map, "maps/generated.svg");
 });
 
 test("default actor generation uploads terrain; explicit blank generation needs only size", async () => {

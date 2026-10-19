@@ -1,4 +1,4 @@
-# World surface maps (1.22.0)
+# World surface maps (1.23.0)
 
 The Map tab generates a UWP-sized Traveller globe net, with terrain or as a
 blank grid. Each triangle edge spans `size` steps of 1,000 km.
@@ -8,7 +8,7 @@ and the east/west wrap. Five-face vertices represent pentagons.
 Run the automated geometry and mocked Foundry integration checks with Node 22+:
 
 ```sh
-node --test --test-isolation=none tests/world-map.test.mjs tests/world-map-terrain.test.mjs
+node --test --test-isolation=none tests/world-map.test.mjs tests/world-map-terrain.test.mjs tests/world-map-data.test.mjs
 ```
 
 The tests check sizes 1–12, equilateral geometry, shared identities, symmetric
@@ -24,7 +24,7 @@ empty, the middle band continuous, and the outer half-faces wrapped.
 
 These require a live Foundry v14 world with the mgt2e system and module enabled:
 
-1. Update the module to 1.22.0 and reload Foundry.
+1. Update the module to 1.23.0 and reload Foundry.
 2. Open a size-5 World actor's Map tab. Select **Generate / Reroll Surface Map**.
    Verify the five-column triangular net, terrain, legend, world name, scale,
    and refreshed image. Verify **Generate Blank World Map** still produces a
