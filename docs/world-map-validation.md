@@ -1,4 +1,4 @@
-# Blank world maps (1.21.10)
+# Blank world maps (1.21.11)
 
 The Map tab now generates a blank, UWP-sized Traveller globe net. Terrain
 generation is deferred. Each triangle edge spans `size` steps of 1,000 km.
@@ -24,7 +24,7 @@ empty, the middle band continuous, and the outer half-faces wrapped.
 
 These require a live Foundry v14 world with the mgt2e system and module enabled:
 
-1. Update the module to 1.21.10 and reload Foundry.
+1. Update the module to 1.21.11 and reload Foundry.
 2. Open a size-5 World actor's Map tab. Select **Generate Blank World Map**.
    Verify the five-column triangular net, world name, scale, and refreshed image.
 3. Repeat with size 4, 8, and A. Density must change with size; hexes stay regular.
@@ -38,3 +38,24 @@ These require a live Foundry v14 world with the mgt2e system and module enabled:
 Existing maps are replaced only by explicitly requested generation. Each
 successful generation uploads a new file so browser caches cannot show the old
 image. Older generated files are retained; this release does not delete assets.
+
+## Forge import diagnostics
+
+Version 1.21.11 shares successful map-folder preparation across the browser
+session. A batch no longer repeats folder creation/browsing for every world.
+Concurrent map requests share preparation; failed preparation is retryable,
+and upload failures invalidate the cache so the next attempt rechecks storage.
+Each map still requires its own upload, so large imports can still trigger
+Forge's sustained API activity warnings. Those warnings alone do not establish
+an upload failure.
+
+The supplied console log also reports `setProperty is not defined` from
+`ForgeVTT.mjs:629`, inside Forge's `preUpdateActor` hook. The triggering stack
+includes an mgt2e actor-creation follow-up update (`mgt2.mjs:829`). This is
+separate from the successful map uploads and is not fixed by reducing map
+storage calls. Foundry v14 documents the utility as `foundry.utils.setProperty`:
+https://foundryvtt.com/api/functions/foundry.utils.setProperty.html
+
+If that error persists, provide Forge support with the error and stack, the
+Foundry build, and mgt2e version (the supplied log shows 0.23.2.0). This module
+does not replace Forge hooks or restore obsolete global utility aliases.

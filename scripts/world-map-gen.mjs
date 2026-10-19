@@ -1,6 +1,33 @@
 import { MODULE_ID } from "./constants.mjs";
 import { buildWorldGrid, parseWorldSize, renderWorldMapSvg } from "./world-map-grid.mjs";
 
+// Forge routes directory operations through its remote API. Share preparation
+// across the session, including concurrent requests, instead of repeating two
+// creates (and often two browses) for every actor in a sector import.
+const preparedMapDirectories = new WeakMap();
+
+async function prepareMapDirectory(picker, source, dir) {
+  let preparation = preparedMapDirectories.get(picker);
+  if (!preparation) {
+    preparation = (async () => {
+      for (const path of [`worlds/${MODULE_ID}`, dir]) {
+        try { await picker.createDirectory(source, path); }
+        catch (error) {
+          // Do not hide permissions/storage errors unless the folder exists.
+          try { await picker.browse(source, path); }
+          catch { throw error; }
+        }
+      }
+    })();
+    preparedMapDirectories.set(picker, preparation);
+  }
+  try { await preparation; }
+  catch (error) {
+    preparedMapDirectories.delete(picker);
+    throw error;
+  }
+}
+
 // Preserve the actor/image interface; geometry has no Foundry dependencies.
 export async function generateAndSaveWorldMap(actor, { quietSkip = false } = {}) {
   if (!game.user.isGM) return null;
@@ -14,19 +41,20 @@ export async function generateAndSaveWorldMap(actor, { quietSkip = false } = {})
     const picker = foundry.applications.apps.FilePicker.implementation;
     const source = "data";
     const dir = `worlds/${MODULE_ID}/maps`;
-    // Only ignore creation failures when browsing confirms an existing folder.
-    for (const path of [`worlds/${MODULE_ID}`, dir]) {
-      try { await picker.createDirectory(source, path); }
-      catch (error) {
-        try { await picker.browse(source, path); }
-        catch { throw error; }
-      }
-    }
+    await prepareMapDirectory(picker, source, dir);
     // A fresh path refreshes the sheet image after replacing an old map.
     const filename = `${actor.id}-blank-${foundry.utils.randomID()}.svg`;
     const file = new File([svg], filename, { type: "image/svg+xml" });
-    const result = await picker.upload(source, dir, file, {}, { notify: false });
-    if (!result?.path) throw new Error("Upload returned no path. Check the map folder and storage permissions.");
+    let result;
+    try {
+      result = await picker.upload(source, dir, file, {}, { notify: false });
+      if (!result?.path) throw new Error("Upload returned no path. Check the map folder and storage permissions.");
+    } catch (error) {
+      // The user may have removed the folder, or storage may have recovered
+      // since a failed upload. Recheck it on the next attempt.
+      preparedMapDirectories.delete(picker);
+      throw error;
+    }
     await actor.update({ "system.world.map": result.path });
     return result.path;
   } catch (error) {

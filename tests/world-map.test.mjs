@@ -59,13 +59,13 @@ test("SVG is deterministic, clipped, white and XML escaped", () => {
 });
 
 function setup(size = 5) {
-  const calls = { upload: 0, update: 0, info: [], error: [] };
+  const calls = { upload: 0, update: 0, directory: 0, browse: 0, info: [], error: [] };
   globalThis.game = { user: { isGM: true } };
   globalThis.ui = { notifications: {
     info: text => calls.info.push(text), error: text => calls.error.push(text)
   } };
   const picker = {
-    async createDirectory() {}, async browse() {},
+    async createDirectory() { calls.directory++; }, async browse() { calls.browse++; },
     async upload() { calls.upload++; return { path: "maps/generated.svg" }; }
   };
   globalThis.foundry = { utils: { randomID: () => "unique" }, applications: { apps: { FilePicker: { implementation: picker } } } };
@@ -127,6 +127,42 @@ test("sheet button restores state after a failed generation", async () => {
   finally { console.error = originalError; }
   assert.equal(button.disabled, false);
   assert.equal(button.textContent, "Generate Blank World Map");
+});
+
+test("sector-sized map batch prepares folders once and still uploads each map", async () => {
+  const { actor, calls } = setup(1);
+  for (let i = 0; i < 80; i++) assert.ok(await generateAndSaveWorldMap(actor));
+  assert.equal(calls.directory, 2);
+  assert.equal(calls.browse, 0);
+  assert.equal(calls.upload, 80);
+  assert.equal(calls.update, 80);
+});
+
+test("concurrent maps share folder preparation", async () => {
+  const { actor, calls } = setup(1);
+  await Promise.all(Array.from({ length: 5 }, () => generateAndSaveWorldMap(actor)));
+  assert.equal(calls.directory, 2);
+  assert.equal(calls.upload, 5);
+});
+
+test("failed folder preparation and upload can recover on next attempt", async () => {
+  const originalError = console.error; console.error = () => {};
+  try {
+    const { actor, calls, picker } = setup(1);
+    const create = picker.createDirectory, browse = picker.browse, upload = picker.upload;
+    picker.createDirectory = async () => { throw new Error("Offline"); };
+    picker.browse = async () => { throw new Error("Offline"); };
+    assert.equal(await generateAndSaveWorldMap(actor), null);
+    picker.createDirectory = create; picker.browse = browse;
+    assert.ok(await generateAndSaveWorldMap(actor));
+    assert.equal(calls.directory, 2);
+    picker.upload = async () => { throw new Error("Folder removed"); };
+    assert.equal(await generateAndSaveWorldMap(actor), null);
+    picker.upload = upload;
+    assert.ok(await generateAndSaveWorldMap(actor));
+    assert.equal(calls.directory, 4);
+    assert.equal(calls.update, 2);
+  } finally { console.error = originalError; }
 });
 
 test("batch imports continue after size zero and upload failure", async () => {
