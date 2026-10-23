@@ -1,0 +1,38 @@
+{
+  "format": "tt-items-bundle",
+  "formatVersion": 1,
+  "source": { "key": "sample-items", "title": "Test fixture (fictional)", "short": "TEST", "order": 50 },
+  "bundleVersion": 1,
+  "generatedAt": "2026-10-23T15:00:00Z",
+  "pack": { "name": "tt-test-items", "label": "TT Test Items" },
+  "assets": [ "test/blaster.webp" ],
+  "items": [
+    {
+      "key": "sample-items:test:blaster", "name": "Test Blaster", "type": "weapon",
+      "folder": ["Test Weapons", "Pistols"], "img": "test/blaster.webp", "page": 1,
+      "system": { "tl": 9, "weight": 1, "cost": 500, "quantity": 1, "notes": "",
+        "description": "<p>Invented test weapon.</p>",
+        "weapon": { "scale": "traveller", "range": 20, "minRange": 0, "damage": "3D6", "magazine": 20, "ammo": 20,
+          "magazineCost": 10, "characteristic": "DEX", "skill": "guncombat.energy", "parryBonus": 0, "damageBonus": "",
+          "damageType": "standard", "attackBonus": 0, "traits": "zeroG" } }
+    },
+    {
+      "key": "sample-items:test:big-gun:tl10", "name": "Test Big Gun (TL10)", "type": "weapon",
+      "folder": ["Test Weapons", "Heavy"], "img": null, "page": 2,
+      "system": { "tl": 10, "weight": 2000, "cost": 100000, "quantity": 1, "notes": "",
+        "description": "<p>Invented vehicle-scale weapon with destructive damage.</p>",
+        "weapon": { "scale": "vehicle", "range": 5, "minRange": 1, "damage": "2D6", "magazine": 10, "ammo": 10,
+          "magazineCost": 1000, "characteristic": "DEX", "skill": "heavyweapons.vehicle", "parryBonus": 0, "damageBonus": "",
+          "damageType": "standard", "attackBonus": 0, "traits": "destructive, ap 10, blast 10" } }
+    },
+    {
+      "key": "sample-items:test:stick", "name": "Test Stick", "type": "weapon",
+      "folder": ["Test Weapons", "Melee"], "img": null, "page": 3,
+      "system": { "tl": 1, "weight": 1, "cost": 5, "quantity": 1, "notes": "",
+        "description": "<p>Invented melee weapon.</p>",
+        "weapon": { "scale": "traveller", "range": 0, "minRange": 0, "damage": "2D6", "magazine": 0, "ammo": 0,
+          "magazineCost": 0, "characteristic": "DEX", "skill": "melee.bludgeon", "parryBonus": 0, "damageBonus": "STR",
+          "damageType": "standard", "attackBonus": 0, "traits": "" } }
+    }
+  ]
+}
