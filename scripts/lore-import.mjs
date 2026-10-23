@@ -519,7 +519,9 @@ class LoreImportApp extends TradingWindowBase {
     this.report = null;
     this.busy = false;
     this.statusHtml = "";
-    this.options = { createMissingActors: true, removeOrphans: false, generateMaps: false };
+    // Not 	his.options: ApplicationV2 keeps its own window configuration
+    // there, and overwriting it stops the window from rendering at all.
+    this.importOptions = { createMissingActors: true, removeOrphans: false, generateMaps: false };
   }
 
   async close(options) {
@@ -534,7 +536,7 @@ class LoreImportApp extends TradingWindowBase {
     this.root.addEventListener("change", (e) => {
       const opt = e.target.closest("[data-tt-lore-opt]");
       if (!opt) return;
-      this.options[opt.dataset.ttLoreOpt] = opt.checked;
+      this.importOptions[opt.dataset.ttLoreOpt] = opt.checked;
       if (opt.dataset.ttLoreOpt === "removeOrphans") this._replan();
       this._renderContent();
     });
@@ -543,7 +545,7 @@ class LoreImportApp extends TradingWindowBase {
   _replan() {
     if (!this.bundle) { this.plan = null; return; }
     try {
-      this.plan = planLoreImport(this.bundle, buildLoreIndex({ milieu: this.bundle.milieu || settingMilieu() }), { removeOrphans: this.options.removeOrphans });
+      this.plan = planLoreImport(this.bundle, buildLoreIndex({ milieu: this.bundle.milieu || settingMilieu() }), { removeOrphans: this.importOptions.removeOrphans });
     } catch (err) {
       console.error("Traveller Trading | Lore dry run failed", err);
       this.plan = null;
@@ -581,7 +583,7 @@ class LoreImportApp extends TradingWindowBase {
     this.statusHtml = `<p class="tt-hint">Starting import…</p>`;
     this._renderContent();
     try {
-      this.report = await applyLoreImport(this.bundle, { ...this.options }, (text) => {
+      this.report = await applyLoreImport(this.bundle, { ...this.importOptions }, (text) => {
         this.statusHtml = `<p class="tt-hint">${esc(text)}</p>`;
         this._renderContent();
       });
@@ -609,7 +611,7 @@ class LoreImportApp extends TradingWindowBase {
     if (!plan) return html;
     const s = plan.summary;
     if (plan.warnings.length) html += `<div class="tt-lore-warn"><ul>${plan.warnings.map(w => `<li>${esc(w)}</li>`).join("")}</ul></div>`;
-    const actorsLine = this.options.createMissingActors
+    const actorsLine = this.importOptions.createMissingActors
       ? `link updates <strong>${s.actors.update}</strong> · to create from Traveller Map <strong>${s.missingActors}</strong>`
       : `link updates <strong>${s.actors.update}</strong> · not found <strong>${s.missingActors}</strong>`;
     html += `<h4 class="tt-lore-h">Dry run</h4>
@@ -622,13 +624,13 @@ class LoreImportApp extends TradingWindowBase {
         <tr><td>Manual edits</td><td><strong>${s.manualEdits}</strong>${s.manualEdits ? " (copied to Notes pages before overwriting)" : ""}</td></tr>
         <tr><td>Unresolved links</td><td><strong>${s.unresolved}</strong></td></tr>
       </table>
-      <p class="tt-hint">${plan.changeCount === 0 && !(this.options.createMissingActors && s.missingActors) ? "No changes — everything in this bundle is already imported." : `${plan.changeCount} change(s) to apply.`}</p>
+      <p class="tt-hint">${plan.changeCount === 0 && !(this.importOptions.createMissingActors && s.missingActors) ? "No changes — everything in this bundle is already imported." : `${plan.changeCount} change(s) to apply.`}</p>
       ${planDetailsHtml(plan)}`;
     return html;
   }
 
   _optionsHtml() {
-    const opt = (key, label) => `<label class="tt-lore-opt"><input type="checkbox" data-tt-lore-opt="${key}" ${this.options[key] ? "checked" : ""} ${this.busy ? "disabled" : ""}> ${label}</label>`;
+    const opt = (key, label) => `<label class="tt-lore-opt"><input type="checkbox" data-tt-lore-opt="${key}" ${this.importOptions[key] ? "checked" : ""} ${this.busy ? "disabled" : ""}> ${label}</label>`;
     return `<div class="tt-lore-options">
       ${opt("createMissingActors", "Create missing world actors from Traveller Map")}
       ${opt("removeOrphans", "Remove orphaned blocks and hooks from this source")}
