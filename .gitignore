@@ -3,3 +3,7 @@ tmp/
 # Lore bundles summarise copyrighted books; never commit real ones.
 *.tt-lore.json
 !tests/fixtures/*.tt-lore.json
+
+# Items bundles (and their images) come from copyrighted books; never commit real ones.
+*.tt-items.json
+!tests/fixtures/*.tt-items.json

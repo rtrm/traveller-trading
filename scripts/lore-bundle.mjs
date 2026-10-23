@@ -121,7 +121,8 @@ function allowedAttributes(tag, raw) {
 // survive), disallowed tags are dropped and reported, and every "<" or ">"
 // left in text is escaped — so an unterminated "<img onerror=…" can never be
 // completed by markup the renderer appends after it.
-export function sanitizeHtml(html) {
+// `allowed` defaults to the lore tag list; items-bundle.mjs passes its own.
+export function sanitizeHtml(html, allowed = ALLOWED_TAGS) {
   const input = String(html ?? "");
   const stripped = new Set();
   let out = "", last = 0, dropping = null;
@@ -136,7 +137,7 @@ export function sanitizeHtml(html) {
       if (closing && tag === dropping) dropping = null;
       continue;
     }
-    if (ALLOWED_TAGS.has(tag)) {
+    if (allowed.has(tag)) {
       if (tag === "br") { if (!closing) out += "<br>"; continue; }
       out += closing ? `</${tag}>` : `<${tag}${allowedAttributes(tag, m[0])}>`;
       continue;

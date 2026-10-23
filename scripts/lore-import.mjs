@@ -364,11 +364,11 @@ export async function applyRemoveSource(sourceKey, onProgress) {
 // Report + import log
 // ---------------------------------------------------------------------------
 
-function countsRow(label, counts, keys) {
+export function countsRow(label, counts, keys) {
   return `<tr><td>${esc(label)}</td><td>${keys.map(k => `${esc(k)} <strong>${counts?.[k] ?? 0}</strong>`).join(" · ")}</td></tr>`;
 }
 
-function listHtml(title, items, render) {
+export function listHtml(title, items, render) {
   if (!items?.length) return "";
   return `<h4>${esc(title)} (${items.length})</h4><ul>${items.slice(0, 200).map(i => `<li>${render(i)}</li>`).join("")}${items.length > 200 ? `<li>…and ${items.length - 200} more</li>` : ""}</ul>`;
 }
@@ -400,27 +400,39 @@ export function reportHtml(report) {
     + listHtml("Unresolved links", report.unresolved, u => `${esc(u.label)} → <code>${esc(u.key)}</code> <em>on</em> ${esc(u.page)}`);
 }
 
-async function writeImportLog(report, registryUpdate) {
+// The shared import log (lore and items imports both write here): one
+// dated page per import, newest LOG_KEEP kept. Found by its key flag, so a
+// GM rename is fine. `registryUpdate` is an update object for the entry,
+// used to record each source's latest imported bundleVersion.
+export async function appendImportLog({ when, title, html, registryUpdate }) {
   let entry = game.journal.find(j => j.flags?.[MODULE_ID]?.lore?.key === LOG_KEY);
   if (!entry) {
     entry = await JournalEntryCls().create({
-      name: "Lore Import Log", ownership: { default: OWNERSHIP_NONE() },
+      name: "Import Log", ownership: { default: OWNERSHIP_NONE() },
       flags: { [MODULE_ID]: { lore: { key: LOG_KEY, kind: "log", sources: {} } } }
     });
   }
   if (registryUpdate) await entry.update(registryUpdate);
-  const stamp = new Date(report.when);
-  const name = `${stamp.toISOString().slice(0, 16).replace("T", " ")} — ${report.kind === "remove" ? "Removed" : "Imported"} ${report.source?.short || report.source?.key}${report.bundleVersion !== undefined ? ` v${report.bundleVersion}` : ""}`;
+  const stamp = new Date(when);
   await entry.createEmbeddedDocuments("JournalEntryPage", [{
-    name, type: "text", sort: Math.floor(stamp.getTime() / 1000),
-    text: { content: reportHtml(report), format: HTML_FORMAT() },
+    name: `${stamp.toISOString().slice(0, 16).replace("T", " ")} — ${title}`, type: "text", sort: Math.floor(stamp.getTime() / 1000),
+    text: { content: html, format: HTML_FORMAT() },
     flags: { [MODULE_ID]: { loreLog: true } }
   }]);
   const logPages = entry.pages.filter(p => p.flags?.[MODULE_ID]?.loreLog).sort((a, b) => b.sort - a.sort);
   const stale = logPages.slice(LOG_KEEP).map(p => p.id);
   if (stale.length) await entry.deleteEmbeddedDocuments("JournalEntryPage", stale);
+  return entry;
 }
 
+export function importLogEntry() {
+  return game.journal.find(j => j.flags?.[MODULE_ID]?.lore?.key === LOG_KEY) || null;
+}
+
+async function writeImportLog(report, registryUpdate) {
+  const title = `${report.kind === "remove" ? "Removed" : "Imported"} ${report.source?.short || report.source?.key}${report.bundleVersion !== undefined ? ` v${report.bundleVersion}` : ""}`;
+  await appendImportLog({ when: report.when, title, html: reportHtml(report), registryUpdate });
+}
 // ---------------------------------------------------------------------------
 // Settings menus
 // ---------------------------------------------------------------------------
