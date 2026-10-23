@@ -497,3 +497,6 @@
 .tt-hook-badge[data-status="used"] { color: #3c9a5b; }
 .tt-hook-badge[data-status="discarded"] { color: #b04a3c; text-decoration: line-through; }
 .tt-hook-select { font-size: 0.8em; height: auto; width: auto; padding: 0 0.2em; }
+/* World sheet header: link to the world's lore page (lore-import.mjs). */
+.tt-lore-sheet-link { flex: 0 0 100%; margin: 4px 0; font-size: 13px; }
+.tt-lore-sheet-link > i { opacity: 0.7; }

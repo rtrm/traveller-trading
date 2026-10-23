@@ -770,12 +770,53 @@ class RemoveLoreSourceApp extends TradingWindowBase {
 // registerWorldMapGenButton in world-map-gen.mjs), placed after the map
 // buttons. "Lore" opens the linked page; "Notes" opens or creates the GM's
 // own Notes page beside it.
+// The actor-to-journal half of the link: a content link to the world's lore
+// page in the sheet header, so it shows on every tab. It is drawn on each
+// render from flags.traveller-trading.lore and never saved to the actor:
+// system.description is off limits because Import Worlds overwrites it.
+// The click and drag handlers are our own (not Foundry's global
+// content-link listener), so it behaves the same whether or not the
+// sheet's own listeners pick it up.
+function injectLoreHeaderLink(root, actor) {
+  if (root.querySelector("[data-tt-lore-link]")) return;
+  const lore = actor.getFlag(MODULE_ID, "lore");
+  if (!lore?.pageUuid) return;
+  const page = fromUuidSync(lore.pageUuid);
+  if (!page) return;
+  const line = document.createElement("div");
+  line.className = "tt-lore-sheet-link";
+  line.dataset.ttLoreLink = "1";
+  line.innerHTML = `<i class="fa-solid fa-book-atlas"></i> Lore: `;
+  const link = document.createElement("a");
+  link.className = "content-link";
+  link.draggable = true;
+  link.dataset.uuid = page.uuid;
+  link.dataset.type = "JournalEntryPage";
+  link.dataset.tooltip = `${page.parent?.name ?? "Journal"} › ${page.name}`;
+  link.innerHTML = `<i class="fa-solid fa-file-lines"></i>${esc(page.name)}`;
+  link.addEventListener("click", (event) => {
+    event.preventDefault();
+    event.stopPropagation();
+    page.parent.sheet.render(true, { pageId: page.id });
+  });
+  link.addEventListener("dragstart", (event) => {
+    event.stopPropagation();
+    event.dataTransfer.setData("text/plain", JSON.stringify({ type: "JournalEntryPage", uuid: page.uuid }));
+  });
+  line.append(link);
+  const header = root.querySelector(".sheet-header");
+  if (header) header.append(line);
+  else (root.querySelector("form") || root.querySelector(".window-content") || root).prepend(line);
+}
+
 export function registerLoreSheetButtons() {
   Hooks.on("renderActorSheet", (app, html) => {
     const actor = app.actor || app.document;
     if (!actor || actor.type !== "world" || !game.user.isGM) return;
     const root = html instanceof HTMLElement ? html : html?.[0];
-    if (!root || root.querySelector("[data-tt-lore-buttons]")) return;
+    if (!root) return;
+    injectLoreHeaderLink(root, actor);
+    if (root.querySelector("[data-tt-lore-buttons]")) return;
     const anchor = root.querySelector("div[data-tt-gen-map]") || root.querySelector('img[data-edit="system.world.map"]');
     if (!anchor) return;
     const container = document.createElement("div");
