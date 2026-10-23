@@ -1,4 +1,4 @@
-# Import lore bundles (1.25.0)
+# Import lore bundles (1.25.0+)
 
 A **lore bundle** is a JSON file (`*.tt-lore.json`) of referee notes for one
 sector, taken from one source such as a regional guide, a sourcebook, a
