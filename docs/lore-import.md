@@ -107,7 +107,7 @@ overwrites those every time it runs, and lore stored there would be lost.
 Each source's entries are merged, so importing one source never removes
 another source's alternative UWP.
 
-Once linked, a World sheet's header shows **Lore:** followed by a link to the world's lore page. You can click it to open the page, or drag it into another journal or onto the hotbar. The link is drawn each time the sheet opens, and is never saved into the actor.
+Once linked, a World sheet's title bar has a **Lore** button, next to Sheet and Prototype Token, that opens the world's lore page from any tab. It's added each time the sheet opens, and nothing is saved into the actor.
 
 On a World sheet, the GM also sees two buttons below the map buttons:
 
