@@ -18,7 +18,9 @@ const FLAG_TRAVELLER_MAP_DATA = "travellerMapData";
 // Traveller Map fetches
 // ---------------------------------------------------------------------------
 
-async function fetchSectorMetadata(sectorName, milieu) {
+// Exported for lore-import.mjs, which fetches it once per lore import when
+// creating World actors that a bundle mentions but the world lacks.
+export async function fetchSectorMetadata(sectorName, milieu) {
   const res = await fetch(`https://travellermap.com/api/metadata?sector=${encodeURIComponent(sectorName)}&milieu=${encodeURIComponent(milieu)}`);
   if (!res.ok) throw new Error(`Traveller Map returned ${res.status} for sector metadata`);
   const json = await res.json();

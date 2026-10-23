@@ -12,13 +12,21 @@ import { registerDestinationMapSettings, registerPreferredSectorChoices } from "
 import { migrateSupplierSearches } from "./supplier-search.mjs";
 import { registerWorldImportSettings } from "./world-import.mjs";
 import { registerWorldMapGenButton } from "./world-map-gen.mjs";
+import { registerLoreImportSettings, registerLoreSheetButtons } from "./lore-import.mjs";
+import { registerLoreHookDecorations } from "./lore-hooks.mjs";
 
 Hooks.once("init", () => {
   registerTradeGoodsSettings();
   registerPermissionsSettings();
   registerDestinationMapSettings();
   registerWorldImportSettings();
+  // Lore menus ("Import Lore Bundle", "Remove Lore Source", "Hooks & Rumours
+  // Tracker") sit right after Import Worlds in Configure Settings.
+  registerLoreImportSettings();
+  registerLoreHookDecorations();
   registerWorldMapGenButton();
+  // After the map buttons, so the Lore/Notes buttons land below them.
+  registerLoreSheetButtons();
   registerFinanceSettings();
 
   // "Use Standard Foundry Styling" — off by default, so nothing changes for
@@ -100,6 +108,11 @@ Hooks.on("updateJournalEntry", (doc) => {
   refreshLauncher();
   if (kind === "finance") refreshGroupFinanceApp();
   else refreshShipApp(doc.id);
+});
+// The launcher's "Hooks & Rumours" entry appears once the first lore import
+// creates a hooks journal.
+Hooks.on("createJournalEntry", (doc) => {
+  if (doc.getFlag(MODULE_ID, "lore")?.kind === "hooks") refreshLauncher();
 });
 Hooks.on("deleteJournalEntry", (doc) => {
   if (!doc.getFlag(MODULE_ID, "kind")) return;

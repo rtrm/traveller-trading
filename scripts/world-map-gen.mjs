@@ -2,6 +2,7 @@ import { MODULE_ID } from "./constants.mjs";
 import { buildWorldGrid, parseWorldSize, renderWorldMapSvg } from "./world-map-grid.mjs";
 import { generateWorldTerrain } from "./world-map-terrain.mjs";
 import { serializeWorldMap, deserializeWorldMap, embedWorldMapData, recoverWorldMapData, MAX_MAP_BYTES } from "./world-map-data.mjs";
+import { chooseFile } from "./file-picker.mjs";
 
 // Forge routes directory operations through its remote API. Share preparation
 // across the session, including concurrent requests, instead of repeating two
@@ -118,17 +119,6 @@ function downloadMap(data, actor) {
   setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
 
-function chooseMapFile() {
-  return new Promise(resolve => {
-    const input = document.createElement("input");
-    input.type = "file"; input.accept = ".json,application/json"; input.hidden = true;
-    const finish = file => { input.remove(); resolve(file); };
-    input.addEventListener("change", () => finish(input.files?.[0] || null), { once: true });
-    input.addEventListener("cancel", () => finish(null), { once: true });
-    document.body.append(input); input.click();
-  });
-}
-
 export function registerWorldMapGenButton() {
   Hooks.on("renderActorSheet", (app, html) => {
     const actor = app.actor || app.document;
@@ -145,7 +135,7 @@ export function registerWorldMapGenButton() {
       { label: "Generate Blank World Map", run: () => generateAndSaveWorldMap(actor, { blank: true }) },
       { label: "Export Map Data", run: async () => downloadMap(await exportWorldMapData(actor), actor) },
       { label: "Import Map Data", run: async () => {
-        const file = await chooseMapFile();
+        const file = await chooseFile();
         if (!file) return;
         if (file.size > MAX_MAP_BYTES) throw new Error("Map data exceeds the 5 MB limit.");
         await importWorldMapData(actor, await file.text());

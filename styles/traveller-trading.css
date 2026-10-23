@@ -432,3 +432,68 @@
   cursor: pointer;
 }
 #tt-root .tt-tm-result:hover { border-color: var(--gold); }
+
+/* ---------------------------------------------------------------------------
+   Lore import (1.25.0). Two kinds of rules:
+   - .tt-lore-window: the import / remove / tracker windows. Scoped under
+     #tt-root like every other window, so "Use Standard Foundry Styling"
+     (#tt-root.tt-standard-look) swaps their colours automatically.
+   - .tt-lore-src / .tt-lore-block / .tt-hook: markup inside journal pages,
+     which Foundry renders with its own journal styling. Kept deliberately
+     light (borders, spacing, muted citations) and colour-neutral so it reads
+     well on both the light and dark journal themes.
+   --------------------------------------------------------------------------- */
+#tt-root .tt-lore-window { font-size: 12.5px; }
+#tt-root .tt-lore-window code { font-size: 11px; }
+#tt-root .tt-lore-h {
+  font-family: "SFMono-Regular", Consolas, monospace;
+  font-size: 12px;
+  color: var(--gold);
+  margin: 14px 0 6px;
+}
+#tt-root .tt-lore-bundle-info { margin-top: 10px; padding: 8px 10px; background: var(--panel); border: 1px solid var(--border); border-radius: 4px; }
+#tt-root .tt-lore-bundle-info p { margin: 0 0 4px; }
+#tt-root .tt-lore-warn { margin-top: 8px; padding: 6px 10px; border-left: 3px solid var(--gold); background: var(--panel); }
+#tt-root .tt-lore-warn ul { margin: 0; padding-left: 18px; }
+#tt-root .tt-lore-error { color: var(--red); font-style: normal; }
+#tt-root .tt-lore-details { margin: 6px 0; }
+#tt-root .tt-lore-details summary { cursor: pointer; color: var(--text-muted); }
+#tt-root .tt-lore-details h4,
+#tt-root .tt-lore-report h4 { font-size: 11.5px; color: var(--text-muted); margin: 10px 0 4px; }
+#tt-root .tt-lore-details ul,
+#tt-root .tt-lore-report ul { margin: 0; padding-left: 18px; max-height: 220px; overflow-y: auto; }
+#tt-root .tt-lore-options { display: flex; flex-direction: column; gap: 4px; margin-top: 10px; }
+#tt-root .tt-lore-opt { display: flex; align-items: center; gap: 6px; }
+#tt-root .tt-lore-op-create { color: var(--teal); }
+#tt-root .tt-lore-op-update { color: var(--gold); }
+#tt-root .tt-lore-op-delete { color: var(--red); }
+#tt-root .tt-lore-report { margin-top: 12px; border-top: 1px solid var(--border); }
+#tt-root .tt-hook-tracker .tt-table td { vertical-align: top; }
+#tt-root .tt-hook-tracker .tt-hook-id { white-space: nowrap; }
+#tt-root .tt-hook-tracker .tt-hook-id a { cursor: pointer; color: var(--gold); }
+#tt-root .tt-hook-tracker .tt-hook-text { color: var(--text-muted); }
+#tt-root .tt-hook-tracker td .tt-input { display: block; width: 140px; margin-bottom: 4px; }
+
+/* Inside journal pages. */
+.tt-lore-head { margin-bottom: 0.6em; }
+.tt-lore-head p { margin: 0.15em 0; }
+.tt-lore-uwp-src { opacity: 0.7; font-size: 0.9em; }
+.tt-lore-src { margin: 0.8em 0 1em; }
+.tt-lore-src > h3 { border-bottom: 1px solid currentColor; padding-bottom: 0.15em; opacity: 0.85; }
+.tt-lore-block { margin: 0.5em 0 0.9em; }
+.tt-lore-cite { margin-top: 0.2em; font-size: 0.85em; font-style: italic; opacity: 0.65; }
+.tt-lore-src-tag { font-size: 0.8em; padding: 0 0.4em; border: 1px solid currentColor; border-radius: 3px; opacity: 0.7; }
+.tt-lore-also { font-size: 0.92em; }
+.tt-lore-empty { font-style: italic; opacity: 0.7; }
+.tt-hook { margin: 0.5em 0; padding: 0.3em 0.6em; border-left: 3px solid rgba(201, 162, 74, 0.8); }
+.tt-hook-head { margin: 0 0 0.25em; }
+.tt-hook-status { display: inline-flex; align-items: center; gap: 0.4em; margin-left: 0.5em; vertical-align: middle; }
+.tt-hook-badge {
+  font-size: 0.75em; font-weight: 600; text-transform: uppercase; letter-spacing: 0.04em;
+  padding: 0.05em 0.5em; border-radius: 8px; border: 1px solid currentColor; white-space: nowrap;
+}
+.tt-hook-badge[data-status="unused"] { opacity: 0.6; }
+.tt-hook-badge[data-status="seeded"] { color: #2f8fb0; }
+.tt-hook-badge[data-status="used"] { color: #3c9a5b; }
+.tt-hook-badge[data-status="discarded"] { color: #b04a3c; text-decoration: line-through; }
+.tt-hook-select { font-size: 0.8em; height: auto; width: auto; padding: 0 0.2em; }

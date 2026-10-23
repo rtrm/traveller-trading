@@ -3,6 +3,7 @@ import { getShipDocs, createShipDoc, deleteShipDoc } from "./data.mjs";
 import { esc, standardLookEnabled, createDialogV2 } from "./window-base.mjs";
 import { openGroupFinanceApp } from "./finance-app.mjs";
 import { openShipApp, closeShipAppIfOpen } from "./ship-app.mjs";
+import { openHookTrackerApp } from "./lore-hooks.mjs";
 
 // Sibling Traveller modules whose sidebar icon this launcher's footer also
 // surfaces when they're installed and active — each exposes a no-arg
@@ -95,6 +96,7 @@ export class LauncherController {
     }
     const addBtn = e.target.closest("[data-tt-add]");
     if (addBtn) { await this._promptAddShip(addBtn.dataset.ttAdd === "storage"); return; }
+    if (e.target.closest("[data-tt-open-hooks]")) { openHookTrackerApp(); return; }
     const moduleBtn = e.target.closest("[data-tt-open-module]");
     if (moduleBtn) { game.modules.get(moduleBtn.dataset.ttOpenModule)?.api?.open?.(); return; }
   }
@@ -165,6 +167,15 @@ export class LauncherController {
         <span class="tt-launcher-icon">➕📦</span>
         <div class="document-name">Add Storage Location</div>
       </li>`;
+      // Only once a lore bundle has created a Hooks & Rumours journal, so
+      // worlds that never import lore don't gain a dead entry.
+      if (game.journal.some(j => j.flags?.[MODULE_ID]?.lore?.kind === "hooks")) {
+        footerHtml += `
+      <li class="directory-item tt-launcher-item tt-launcher-add" data-tt-open-hooks>
+        <span class="tt-launcher-icon"><i class="fa-solid fa-list-check"></i></span>
+        <div class="document-name">Hooks &amp; Rumours</div>
+      </li>`;
+      }
     }
     for (const mod of RELATED_MODULES) {
       if (!game.modules.get(mod.id)?.active) continue;
