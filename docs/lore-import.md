@@ -34,7 +34,7 @@ Journal
    ├─ Reference                      folder (or the bundle's own folder name)
    │  └─ The Aslan Hierate           reference journal, pages from the bundle
    └─ Hooks & Rumours                index page + hook status
-Lore Import Log                      one dated page per import, last 20 kept
+Import Log                           one dated page per import, last 20 kept (shared with items imports)
 ```
 
 All imported journals use default ownership **None**, so players can't see
@@ -253,7 +253,7 @@ Foundry normalises the HTML as it saves it, so that normalisation isn't
 mistaken for a manual edit.
 
 The Hooks & Rumours entry keeps `lore.hooks` (content) and `hookState`
-(status), both keyed by escaped hook ID. The Lore Import Log entry keeps
+(status), both keyed by escaped hook ID. The Import Log entry keeps
 `lore.sources`, a registry of the latest version imported from each source.
 
 ## Verification

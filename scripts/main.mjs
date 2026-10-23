@@ -14,6 +14,7 @@ import { registerWorldImportSettings } from "./world-import.mjs";
 import { registerWorldMapGenButton } from "./world-map-gen.mjs";
 import { registerLoreImportSettings, registerLoreSheetButtons } from "./lore-import.mjs";
 import { registerLoreHookDecorations } from "./lore-hooks.mjs";
+import { registerItemsImportSettings } from "./items-import.mjs";
 
 Hooks.once("init", () => {
   registerTradeGoodsSettings();
@@ -24,6 +25,7 @@ Hooks.once("init", () => {
   // Tracker") sit right after Import Worlds in Configure Settings.
   registerLoreImportSettings();
   registerLoreHookDecorations();
+  registerItemsImportSettings();
   registerWorldMapGenButton();
   // After the map buttons, so the Lore/Notes buttons land below them.
   registerLoreSheetButtons();

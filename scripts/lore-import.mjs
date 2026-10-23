@@ -666,7 +666,7 @@ class LoreImportApp extends TradingWindowBase {
       </div>`;
     }
     body += this.statusHtml || "";
-    if (this.report) body += `<div class="tt-lore-report"><h4 class="tt-lore-h">Import report</h4>${reportHtml(this.report)}<p class="tt-hint">Also saved to the "Lore Import Log" journal.</p></div>`;
+    if (this.report) body += `<div class="tt-lore-report"><h4 class="tt-lore-h">Import report</h4>${reportHtml(this.report)}<p class="tt-hint">Also saved to the Import Log journal.</p></div>`;
     this.root.innerHTML = `<div class="tt-lore-window">${body}</div>`;
   }
 }
